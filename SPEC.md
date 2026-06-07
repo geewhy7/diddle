@@ -1,35 +1,23 @@
-# Word Ladder — Product & Technical Spec
+# Diddle — Product & Technical Spec
 
 ## The product in one paragraph
 A daily word-ladder puzzle delivered as a Telegram Mini App. Every day the bot
-posts (or users request) the same puzzle — a start word and a target word.
-Players tap Play, solve the puzzle privately in a webview, and their score is
-posted to the leaderboard. The social hook is the group leaderboard: same
-puzzle, everyone's score, compare how many moves over par you were.
+posts the same puzzle — a start word and a target word. Players tap Play,
+solve privately in a webview, and their score appears on the leaderboard.
+The social hook: same puzzle for everyone, compare moves-over-par with friends.
 
 ---
 
-## Manual setup required BEFORE writing code
-Claude Code cannot do these steps. Do them first and put the values in `.env`.
+## Pre-coding setup — already done
 
-### 1. Register the Telegram bot (if not already done)
-- Message `@BotFather` → `/newbot`
-- Name: whatever you want (e.g. "Word Ladder")
-- Username: must end in `bot` (e.g. `wordladderbot`)
-- Copy the token → `TELEGRAM_TOKEN`
+- ✅ Bot created via @BotFather → token in `.env`
+- ✅ Game short name `diddle` registered (not used for Mini Apps — ignore)
+- ✅ Domain: `diddle.retard.zone` via Cloudflare tunnel → `localhost:7113`
+- ✅ Private GitHub repo created
+- ✅ Cloudflare tunnel running on Pi
 
-### 2. Register the game
-- Message `@BotFather` → `/newgame`
-- Choose your bot
-- Game short name: `wordladder` (no spaces, lowercase) → `GAME_SHORT_NAME`
-- Title: Word Ladder
-- Description: Daily word puzzle. Turn one word into another, one letter at a time.
-- Photo: upload something (can be a placeholder for now)
-- **No GIF needed**
-
-### 3. Decide your domain and hosting
-- Domain: whatever cheap domain you buy → `diddle.retard.zone` (e.g. `wordladder.xyz`)
-- The game URL will be: `https://diddle.retard.zone` → `GAME_URL`
+No further BotFather configuration needed. Mini Apps don't require
+`/setgameurl` or `sendGame()`.
 
 ---
 
@@ -37,68 +25,65 @@ Claude Code cannot do these steps. Do them first and put the values in `.env`.
 
 ### Journey 1 — Playing in a group
 1. User sends `/play` in a group where the bot lives
-2. Bot replies with a Game message: puzzle preview + **[Play Word Ladder]** button
-3. User taps the button → Telegram opens `GAME_URL` in a webview
-4. User sees the puzzle: start word, target word, par
-5. User types guesses one at a time
-6. Each guess: validated, added to the path, remaining optimal steps shown
-7. On completion: score screen with their path, moves vs par, share button
-8. User taps **Share** → Telegram posts score summary to the group
-9. Anyone in the group can tap the score post to view the leaderboard in context
+2. Bot replies with a message + **[Play Diddle 🎮]** inline button (Mini App)
+3. User taps → Telegram opens `https://diddle.retard.zone` in a webview
+4. User sees the puzzle: start word, target word, par steps
+5. User types guesses one at a time, path builds up on screen
+6. On completion: score screen — their path, moves vs par, share button
+7. User taps **Share** → Telegram posts summary to the group chat
+8. Other players can tap to open their own game or view leaderboard
 
-### Journey 2 — Checking the leaderboard
-1. User sends `/scores` in the group (or DM)
-2. Bot queries `/leaderboard` from backend
-3. Bot replies with a formatted leaderboard: ranked by moves, gave_up at bottom
+### Journey 2 — Leaderboard
+1. User sends `/scores` in group or DM
+2. Bot fetches `/leaderboard` from backend
+3. Bot replies with ranked list: moves, par delta, gave_up at bottom
 
 ### Journey 3 — Giving up
 1. User taps **Give Up** in the webview
 2. App shows the optimal path
-3. Score recorded as `gave_up: true`
-4. User appears on leaderboard below all finishers
+3. Score recorded as `gave_up: true`, appears at bottom of leaderboard
 
 ---
 
 ## Telegram Mini App integration
 
-### Frontend initialisation
+### SDK init (game.js)
 ```js
 const tg = window.Telegram.WebApp;
-tg.ready();           // tell Telegram the app is ready
-tg.expand();          // use full screen height
-tg.disableVerticalSwipes();  // prevent accidental swipe-to-close while typing
+tg.ready();
+tg.expand();
+tg.disableVerticalSwipes();
 
-const initData = tg.initData;      // validated on every backend request
-const user     = tg.initDataUnsafe.user;  // for display only — not trusted
+const initData = tg.initData;           // sent with every backend request
+const user     = tg.initDataUnsafe.user; // display only, not trusted
 ```
 
-### MainButton (Telegram's native bottom button)
+### MainButton
 ```js
 // When puzzle is solved:
-tg.MainButton.setText("Share Score");
+tg.MainButton.setText("Share Score 🔤");
 tg.MainButton.show();
 tg.MainButton.onClick(() => {
-    // tg.shareScore() for Game API
-    // or tg.showPopup() + manual share for Mini App API
+    tg.close(); // or implement share via tg.showPopup
 });
 ```
 
-### Score submission (Game API)
-After completion, call backend `/score` which then calls Telegram's
-`setGameScore` API to register the score in the Telegram leaderboard system.
-This is what powers the native in-chat leaderboard when a user taps a score.
+### Bot sends Mini App button (NOT sendGame)
+```python
+InlineKeyboardButton("Play Diddle 🎮", web_app=WebAppInfo(url=GAME_URL))
+```
 
 ---
 
 ## API spec
 
-### `GET /health`
+### GET /health
 ```json
 { "status": "ok", "day": 9774 }
 ```
 
-### `GET /puzzle`
-No auth required (puzzle is public, same for everyone).
+### GET /puzzle
+No auth. Same response for everyone.
 ```json
 {
   "start":         "bakes",
@@ -109,29 +94,32 @@ No auth required (puzzle is public, same for everyone).
 }
 ```
 
-### `POST /score`
-Auth: `init_data` in request body (verified server-side).
+### GET /words
+No auth. Returns plain text, one valid word per line.
+Used by the frontend for client-side validation (no round-trip per guess).
+
+### POST /score
 ```json
-// Request
+// Request body
 {
   "init_data": "...",
   "path":      ["bakes", "bikes", "pikes", "pokes", "jokes"],
-  "gave_up":   false,
-  "inline_message_id": "optional — from tg.initDataUnsafe"
+  "gave_up":   false
 }
 
 // Response
 {
-  "moves":     4,
-  "optimal":   4,
-  "delta":     0,
-  "rank":      1,
-  "message":   "Perfect!"
+  "moves":   4,
+  "optimal": 4,
+  "delta":   0,
+  "rank":    1,
+  "message": "Perfect!"
 }
 ```
+Backend re-validates the full path before recording. Client is not trusted.
 
-### `GET /leaderboard`
-Auth: `init_data` in `Authorization: tma <init_data>` header.
+### GET /leaderboard
+Auth: `Authorization: tma <init_data>` header.
 ```json
 [
   { "name": "Alice", "moves": 4, "optimal": 4, "gave_up": false },
@@ -146,17 +134,17 @@ Auth: `init_data` in `Authorization: tma <init_data>` header.
 
 ```sql
 CREATE TABLE IF NOT EXISTS scores (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id         INTEGER NOT NULL,
-    username        TEXT,
-    display_name    TEXT NOT NULL,
-    play_date       TEXT NOT NULL,          -- ISO date, e.g. "2026-06-07"
-    word_length     INTEGER NOT NULL DEFAULT 5,
-    moves           INTEGER NOT NULL,
-    optimal         INTEGER NOT NULL,
-    gave_up         INTEGER NOT NULL DEFAULT 0,  -- boolean 0/1
-    path            TEXT NOT NULL,              -- JSON array
-    submitted_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id      INTEGER NOT NULL,
+    username     TEXT,
+    display_name TEXT NOT NULL,
+    play_date    TEXT NOT NULL,
+    word_length  INTEGER NOT NULL DEFAULT 5,
+    moves        INTEGER NOT NULL,
+    optimal      INTEGER NOT NULL,
+    gave_up      INTEGER NOT NULL DEFAULT 0,
+    path         TEXT NOT NULL,
+    submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, play_date, word_length)
 );
 
@@ -165,78 +153,63 @@ CREATE INDEX IF NOT EXISTS idx_scores_date ON scores(play_date);
 
 ---
 
-## Bot commands (slim — bot does very little)
-
-| Command       | Response                                              |
-|---------------|-------------------------------------------------------|
-| `/play`       | Sends Game message with [Play] button                 |
-| `/scores`     | Fetches leaderboard from backend, formats, replies    |
-| `/help`       | Brief explanation + /play and /scores                 |
-
-The bot does **not** handle gameplay. All gameplay is in the Mini App.
-
----
-
 ## Frontend states
 
-The single `index.html` has these CSS-class-toggled states:
+Single `index.html`, CSS classes toggle between:
 
 ```
-[loading]   → spinner, fetching puzzle from backend
-[playing]   → word input, current path, target, par, moves counter
-[finished]  → score summary, path replay, share button
-[gave-up]   → gave up screen, shows optimal path
-[error]     → something went wrong (network, invalid initData, etc.)
+loading   → spinner while fetching puzzle
+playing   → word input, path display, target, move counter
+finished  → score summary, path, share button
+gave-up   → gave up screen, shows optimal path
+error     → network/auth failure message
 ```
 
-### Playing state layout (mobile)
+### Playing state (mobile layout)
 ```
 ┌─────────────────────────┐
-│  🔤 Word Ladder  Day 157│  ← header
+│  🔤 Diddle  ·  Day 157  │
 │  Par: 4 steps           │
 ├─────────────────────────┤
-│  BAKES                  │  ← path so far (scrollable)
+│  BAKES                  │  ← scrollable path
 │    ↓ B[I]KES            │
 │    ↓ [P]IKES            │
 ├─────────────────────────┤
-│  Target: JOKES          │  ← sticky target reminder
-│  Moves: 2  Best: 2      │
+│  Target: JOKES          │  ← sticky
+│  Moves: 2  |  Best: 2   │
 ├─────────────────────────┤
-│  [____________] [→]     │  ← input + submit
+│  [___________]  [→]     │  ← input + submit
 └─────────────────────────┘
 ```
 
 ---
 
-## Word validation strategy
+## Word validation
 
-Validate **client-side first** (fast, no round-trip) then **trust the server**:
-- Client: check length, alpha, one letter diff, word in a locally-fetched word list
-- Server `/score`: re-validates the entire submitted path before recording it
-
-Don't trust the client's path — always revalidate on the backend before saving.
-
----
-
-## Deployment checklist
-
-- [ ] VPS provisioned (Hetzner CAX11 or similar, Ubuntu 24.04)
-- [ ] Domain pointing at VPS IP
-- [ ] `.env` created on server (never synced via git)
-- [ ] `systemd` units installed and enabled
-- [ ] Backend running: `curl https://diddle.retard.zone/health`
-- [ ] Frontend loading: open `https://diddle.retard.zone` in browser
-- [ ] Bot responding: send `/play` in Telegram
-- [ ] Game opening: tap [Play] — webview loads
-- [ ] Score submitting: complete a puzzle, check `/leaderboard`
-- [ ] BotFather `/setgameurl` set to `https://diddle.retard.zone`
+- **Client-side first**: check length, alpha-only, one letter diff, word in
+  locally-fetched `/words` list. Fast, no round-trip per guess.
+- **Server-side on submit**: backend re-validates entire path before saving.
+  Never trust the client's claimed path.
 
 ---
 
-## What's out of scope (for now)
+## Deployment (Pi + Cloudflare)
 
-- Multiple word lengths selectable in-app (hardcode 5 for launch)
-- User accounts / history across days
-- Custom puzzles
+- [ ] `.env` created on Pi with all values filled in
+- [ ] `pip install -r backend/requirements.txt` and `bot/requirements.txt`
+- [ ] systemd units installed: `deploy/diddle-backend.service` and `deploy/diddle-bot.service`
+- [ ] Both services enabled and started
+- [ ] `curl http://localhost:7113/health` returns `{"status":"ok",...}`
+- [ ] Open `https://diddle.retard.zone` in browser — game loads
+- [ ] Send `/play` in Telegram — Mini App button appears
+- [ ] Tap button — webview opens correctly
+- [ ] Complete a puzzle — score appears in `/scores`
+
+---
+
+## Out of scope for now
+
+- Multiple word lengths in-app (hardcode 5)
+- User history across days
 - Push notifications
-- Anything requiring a paid Telegram tier
+- Custom/practice puzzles

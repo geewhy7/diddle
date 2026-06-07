@@ -1,9 +1,20 @@
-# Word Ladder — Claude Code Instructions
+# Diddle — Claude Code Instructions
 
 ## What this project is
-A Telegram Mini App word ladder game. Daily puzzle, same word pair for all
-players seeded by date. Gameplay happens privately inside a Telegram webview
-(no chat spam). Leaderboard posts to the group. Friends compete on par score.
+A Telegram Mini App word ladder game called Diddle. Daily puzzle, same word
+pair for all players seeded by date. Gameplay happens privately inside a
+Telegram webview (no chat spam). Leaderboard posts to the group.
+Friends compete on par score.
+
+## Setup context — read this before touching anything
+- **Hardware**: Dell mini PC, 24GB RAM (user: pi, hostname: mini — not a Pi despite the name)
+- **Tunnel**: Cloudflare tunnel → `https://diddle.retard.zone` → `localhost:7113`
+  - Cloudflare handles HTTPS. No certbot, no nginx, no SSL config needed.
+  - FastAPI runs on port 7113. The tunnel points there. That's it.
+- **Bot token**: in `.env` as `TELEGRAM_TOKEN`
+- **Game short name**: `diddle` (registered with BotFather but NOT used —
+  we use Mini Apps, not the old Games API)
+- **Frontend**: served as static files by FastAPI at `/` — not a separate server
 
 ## Current state — what already exists
 `backend/game.py` contains the complete, tested word-ladder engine:
@@ -23,61 +34,66 @@ players seeded by date. Gameplay happens privately inside a Telegram webview
 ```
 Telegram group chat
     │
-    ├─ /play command → bot sends Game message with [Play] button
+    ├─ /play command
+    │       │
+    │       └─ bot sends message with inline [Play Diddle 🎮] button
+    │               (WebAppInfo, url = https://diddle.retard.zone)
     │
-    └─ [Play] tapped → Telegram opens GAME_URL in webview
+    └─ button tapped → Telegram opens Mini App webview
                             │
                             ▼
-                    frontend/index.html   (vanilla JS, no framework)
+                    frontend/index.html       (served by FastAPI)
                             │  fetch()
                             ▼
-                    backend/main.py       (FastAPI + uvicorn)
+                    backend/main.py           (FastAPI on port 7113)
                             │
-                            ├─ game.py   (word logic, already done)
-                            ├─ db.py     (aiosqlite)
-                            └─ tg.py     (initData verification, score API)
+                            ├─ game.py        (word logic, already done)
+                            ├─ db.py          (aiosqlite)
+                            └─ tg.py          (initData verification)
                             │
-                    bot/bot.py            (python-telegram-bot, slim)
-                            │
-                            └─ sends Game, handles /scores leaderboard
+                    bot/bot.py                (python-telegram-bot, slim)
+                            └─ sends Mini App button, handles /scores
 ```
 
+The Cloudflare tunnel routes `diddle.retard.zone` → `localhost:7113`.
+FastAPI handles everything on that port: API routes AND static frontend files.
+No nginx. No separate static file server.
 
 ---
 
 ## Tech stack — decided, do not change
 
-| Layer       | Choice              | Reason                                      |
-|-------------|---------------------|---------------------------------------------|
-| Backend     | FastAPI + uvicorn   | Async, fast, auto-docs, works with game.py  |
-| Frontend    | Vanilla HTML/CSS/JS | No build step, simpler deploy, works in TG  |
-| Database    | SQLite + aiosqlite  | File-based, no separate service, upgradeable|
-| Bot         | python-telegram-bot | Already used, async v20                     |
-| Web server  | cloudflared to localhost port 7113               | Reverse proxy + serve frontend static files |
-| Process mgr | systemd             | Reliable, built into Linux                  |
+| Layer       | Choice                       | Reason                                     |
+|-------------|------------------------------|--------------------------------------------|
+| Backend     | FastAPI + uvicorn            | Async, serves static files, works with game.py |
+| Frontend    | Vanilla HTML/CSS/JS          | No build step, 3 files, works in Telegram  |
+| Database    | SQLite + aiosqlite           | File-based, no separate service            |
+| Bot         | python-telegram-bot v20      | Async, already used                        |
+| Tunnel      | Cloudflare (already running) | HTTPS handled externally, no config needed |
+| Process mgr | systemd                      | Reliable, built into Linux                 |
 
-Do **not** introduce React, Vue, SQLAlchemy, Docker, Redis, or any other
-dependencies not listed here without flagging it first.
+Do **not** introduce React, Vue, SQLAlchemy, Docker, Redis, nginx, or any
+other dependencies not listed here without flagging it first.
 
 ---
 
 ## File structure — follow exactly
 
 ```
-word-ladder/
-├── CLAUDE.md                  ← this file
-├── SPEC.md                    ← full product spec
-├── README.md                  ← setup instructions
+diddle/
+├── CLAUDE.md
+├── SPEC.md
+├── README.md
 ├── .gitignore
 ├── .env.example               ← committed, documents all vars
-├── .env                       ← NEVER committed (see rules)
+├── .env                       ← NEVER committed
 ├── .git/hooks/pre-commit      ← blocks .env commits
 │
 ├── backend/
-│   ├── main.py                ← FastAPI app, API routes
+│   ├── main.py                ← FastAPI app + static file serving
 │   ├── game.py                ← word ladder engine (DO NOT MODIFY)
 │   ├── db.py                  ← all database operations
-│   ├── tg.py                  ← initData verification + Telegram API calls
+│   ├── tg.py                  ← initData verification
 │   └── requirements.txt
 │
 ├── frontend/
@@ -86,35 +102,27 @@ word-ladder/
 │   └── game.js                ← game state machine, fetch calls
 │
 ├── bot/
-│   ├── bot.py                 ← sendGame, /scores, /help only
+│   ├── bot.py                 ← /play (Mini App button), /scores, /help
 │   └── requirements.txt
 │
 └── deploy/
-    ├── nginx.conf             ← server block config
-    ├── word-ladder-backend.service   ← systemd unit
-    └── word-ladder-bot.service       ← systemd unit
+    ├── diddle-backend.service ← systemd unit for uvicorn
+    └── diddle-bot.service     ← systemd unit for bot
 ```
 
 ---
 
 ## Environment variables
 
-**Always read from `os.environ` or python-dotenv. Never hardcode.**
-See `.env.example` for all variables and their purpose.
+Always read from `os.environ` or python-dotenv. Never hardcode.
 
-```python
-# Correct
-TOKEN = os.environ["TELEGRAM_TOKEN"]
-
-# Wrong
-TOKEN = "123456:ABC..."
-```
-
-Load dotenv at the top of every entry-point file:
 ```python
 from dotenv import load_dotenv
 load_dotenv()
+TOKEN = os.environ["TELEGRAM_TOKEN"]
 ```
+
+See `.env.example` for all variables.
 
 ---
 
@@ -122,140 +130,130 @@ load_dotenv()
 
 ### initData verification (CRITICAL)
 Every request from the frontend that identifies a user MUST verify Telegram's
-`initData` signature. A user's identity is only trusted after this check passes.
+`initData` signature. Implement in `backend/tg.py`:
 
-Verification algorithm (implement in `backend/tg.py`):
 ```python
-import hashlib, hmac
+import hashlib, hmac, json
 from urllib.parse import parse_qsl, unquote
 
 def verify_init_data(init_data: str, bot_token: str) -> dict:
-    """
-    Returns parsed user data if valid, raises ValueError if not.
-    See: https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
-    """
     parsed = dict(parse_qsl(init_data, keep_blank_values=True))
     received_hash = parsed.pop("hash", None)
     if not received_hash:
         raise ValueError("Missing hash")
-
-    data_check_string = "\n".join(
-        f"{k}={v}" for k, v in sorted(parsed.items())
-    )
+    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(parsed.items()))
     secret_key = hmac.new(b"WebAppData", bot_token.encode(), hashlib.sha256).digest()
     expected   = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-
     if not hmac.compare_digest(expected, received_hash):
         raise ValueError("Invalid hash — reject request")
-
-    import json
-    user_data = json.loads(unquote(parsed.get("user", "{}")))
-    return user_data
+    return json.loads(unquote(parsed.get("user", "{}")))
 ```
 
 Write a unit test for this before building anything that depends on it.
 
 ### CORS
-Backend must only accept requests from the frontend origin and Telegram's CDN.
-Set `allow_origins` in FastAPI's `CORSMiddleware` to `[GAME_URL]` — not `"*"`.
+Set `allow_origins` to `["https://diddle.retard.zone"]` — never `"*"`.
 
 ---
 
-## Git rules
+## Bot — how /play works (Mini Apps, not Games API)
 
-1. **Commit after every logical unit of work.** Don't batch unrelated changes.
-2. **Commit messages**: imperative, specific. `Add initData verification` not `updates`
-3. **Branch strategy**: `main` is always deployable. Work in feature branches.
-   ```
-   git checkout -b feature/backend-api
-   git checkout -b feature/frontend-game-ui
-   git checkout -b feature/bot-slim
-   ```
-4. **Before any commit**: run `git status` and visually confirm `.env` is not staged.
-5. **Never force-push to main.**
-6. **Tag releases**: when something is deployed, `git tag v0.1.0`
+```python
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
-Suggested first commits in order:
-```
-feat: initial project structure and .gitignore
-feat: backend game.py word engine
-feat: backend FastAPI skeleton with /puzzle and /health
-feat: backend initData verification and /score endpoint
-feat: frontend index.html game UI
-feat: frontend game.js state machine and API integration
-feat: bot sendGame and /scores leaderboard
-docs: README deployment guide
+keyboard = [[
+    InlineKeyboardButton(
+        "Play Diddle 🎮",
+        web_app=WebAppInfo(url="https://diddle.retard.zone")
+    )
+]]
+await update.message.reply_text(
+    "Today's puzzle is ready 🔤",
+    reply_markup=InlineKeyboardMarkup(keyboard)
+)
 ```
 
----
-
-## API contract (backend/main.py)
-
-```
-GET  /health              → {status: "ok", day: int}
-GET  /puzzle              → {start, end, optimal_steps, day}
-POST /score               → records score, returns leaderboard position
-     body: {init_data: str, path: [str], gave_up: bool}
-GET  /leaderboard         → today's scores [{name, moves, optimal, gave_up}]
-```
-
-`/score` and `/leaderboard` require valid `init_data` in the request body or
-Authorization header. Reject anything that doesn't verify.
+The bot does NOT use `sendGame()` or the Games API. Do not reference
+`GAME_SHORT_NAME` in bot code.
 
 ---
 
 ## Frontend rules
 
 - **Mobile-first.** Telegram users are overwhelmingly on mobile.
-- **Use Telegram theme variables** for colours so the game matches the user's
-  Telegram theme (light/dark/custom):
+- **Telegram theme variables** — the app must match the user's Telegram theme:
   ```css
   background-color: var(--tg-theme-bg-color);
   color: var(--tg-theme-text-color);
+  button-color: var(--tg-theme-button-color);
   ```
-- **No external fonts or icon libraries.** Keep it fast and offline-resilient.
-- **One HTML file.** Use CSS classes to show/hide game states (loading,
-  playing, finished) rather than multiple pages.
-- **The MainButton** (Telegram's bottom action button) should be used for the
-  primary CTA (e.g., Share Score when done).
-- Initialise the Telegram WebApp SDK immediately:
+- **No external fonts or icon libraries.**
+- **One HTML file.** CSS classes toggle between states: loading, playing,
+  finished, gave-up, error.
+- **MainButton** for primary CTA (Share Score when done).
+- Initialise SDK immediately on load:
   ```js
   const tg = window.Telegram.WebApp;
   tg.ready();
   tg.expand();
-  const initData = tg.initData;  // send this with every API call
+  tg.disableVerticalSwipes();
+  const initData = tg.initData; // send with every API call
   ```
 
 ---
 
-## What NOT to do
+## API contract
 
-- Do not read `.env` file contents directly (use `os.environ` / `load_dotenv`)
-- Do not use `SELECT *` in SQL queries
-- Do not store plaintext tokens or secrets anywhere in code
-- Do not skip initData verification for "testing convenience"
-- Do not use `allow_origins=["*"]` in production CORS config
-- Do not rewrite `game.py`
-- Do not introduce a build step for the frontend without flagging it
-- Do not commit `*.db` files
-- Do not `print()` sensitive data (use `logging`)
-- Do not leave TODO comments in committed code — either implement or file an issue
+```
+GET  /health        → {status: "ok", day: int}
+GET  /puzzle        → {start, end, optimal_steps, day, word_length}
+GET  /words         → plain text list, one word per line (for client validation)
+POST /score         → records score, returns leaderboard position
+     body: {init_data, path: [str], gave_up: bool}
+GET  /leaderboard   → today's scores, auth via Authorization: tma <init_data>
+```
+
+`/score` and `/leaderboard` reject requests with invalid or missing initData.
+
+---
+
+## Git rules
+
+1. Commit after every logical unit of work.
+2. Commit messages: imperative, specific. `Add initData verification` not `wip`
+3. Work in feature branches, merge to main when done.
+4. Before any commit: `git status` — confirm `.env` is not staged.
+5. Never force-push to main.
+
+Suggested commit order:
+```
+feat: backend directory structure and requirements
+feat: FastAPI skeleton with /health /puzzle /words endpoints
+feat: initData verification with unit test
+feat: database schema and /score /leaderboard endpoints
+feat: frontend game UI (index.html, style.css, game.js)
+feat: bot /play Mini App button and /scores leaderboard
+feat: systemd service units
+docs: README with run instructions
+```
 
 ---
 
 ## Running locally
 
 ```bash
-# Backend
-cd backend && uvicorn main:app --reload --port 8000
+# Backend (serves API + frontend static files)
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload --port 7113
 
 # Bot (separate terminal)
-cd bot && python3 bot.py
+cd bot
+pip install -r requirements.txt
+python3 bot.py
 
-# Frontend
-# Serve frontend/ with any static server, e.g.:
-python3 -m http.server 3000 --directory frontend/
-# Then use ngrok or cloudflared for HTTPS (required by Telegram)
+# The Cloudflare tunnel is already configured and running separately.
+# https://diddle.retard.zone → localhost:7113
 ```
 
 ---
@@ -265,5 +263,4 @@ python3 -m http.server 3000 --directory frontend/
 - [ ] Code written and manually tested
 - [ ] Edge cases handled (invalid input, network errors, missing env vars)
 - [ ] No secrets in code
-- [ ] Committed to feature branch with descriptive message
-- [ ] PR merged to main (or pushed directly if solo)
+- [ ] Committed with descriptive message
