@@ -1,0 +1,15 @@
+[Unit]
+Description=Diddle Telegram bot
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/py/diddle/diddle/bot
+ExecStart=/usr/bin/python3 bot.py
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/pi/py/diddle/diddle/.env
+
+[Install]
+WantedBy=multi-user.target

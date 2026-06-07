@@ -181,14 +181,21 @@ async def score(submission: ScoreSubmission):
     }
 
 
-@app.get("/leaderboard")
-async def leaderboard(authorization: str = Header(default="")):
+def _check_leaderboard_auth(authorization: str) -> None:
+    """Accept tma <initData> from the frontend OR bot <token> from the bot process."""
+    if authorization.startswith("bot ") and authorization[4:] == BOT_TOKEN:
+        return
     if not authorization.startswith("tma "):
-        raise HTTPException(status_code=403, detail="Missing tma token")
+        raise HTTPException(status_code=403, detail="Missing auth token")
     try:
         _auth_user(authorization[4:])
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
+
+
+@app.get("/leaderboard")
+async def leaderboard(authorization: str = Header(default="")):
+    _check_leaderboard_auth(authorization)
 
     puz = today_puzzle()
     return await get_leaderboard(DB_PATH, date.today().isoformat(), puz["word_length"])
