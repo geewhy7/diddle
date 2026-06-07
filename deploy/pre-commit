@@ -1,0 +1,16 @@
+#!/bin/sh
+# Git pre-commit hook — blocks accidental .env commits
+# Install: cp deploy/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+BLOCKED="\.env$"
+
+if git diff --cached --name-only | grep -qE "$BLOCKED"; then
+    echo ""
+    echo "  ✗ COMMIT BLOCKED"
+    echo "  A .env file is staged. Remove it with:"
+    echo "    git reset HEAD .env"
+    echo ""
+    exit 1
+fi
+
+exit 0
