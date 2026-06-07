@@ -6,13 +6,19 @@ from datetime import date
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(__file__))
-from game import load_words, build_graph, largest_component, pick_puzzle
+from game import load_words, build_graph, largest_component, pick_puzzle, validate
+from tg import verify_init_data
+from db import init_db, save_score, get_leaderboard
+
+BOT_TOKEN = os.environ["TELEGRAM_TOKEN"]
+DB_PATH   = os.environ.get("DB_PATH", "diddle.db")
 
 _words: set[str] = set()
 _graph: dict = {}
@@ -23,10 +29,12 @@ _puzzle_day: int = -1
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _words, _graph
+    # load_words fetches word lists over HTTP — runs once at startup only
     raw = load_words(5)
     graph = build_graph(raw)
     _words = largest_component(graph)
     _graph = graph
+    await init_db(DB_PATH)
     yield
 
 
@@ -58,6 +66,25 @@ def today_puzzle() -> dict:
     return _puzzle
 
 
+def _rank(leaderboard: list[dict], moves: int, gave_up: bool) -> int:
+    if gave_up:
+        # gave_up entries sort after all completions
+        return sum(1 for e in leaderboard if not e["gave_up"]) + 1
+    return sum(1 for e in leaderboard if not e["gave_up"] and e["moves"] < moves) + 1
+
+
+def _message(delta: int, gave_up: bool) -> str:
+    if gave_up:
+        return "Better luck tomorrow!"
+    if delta == 0:
+        return "Perfect!"
+    if delta == 1:
+        return "So close — 1 over par!"
+    return f"+{delta} over par"
+
+
+# ── Public endpoints ───────────────────────────────────────────────────────────
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "day": date.today().toordinal() % 10_000}
@@ -73,5 +100,91 @@ async def words():
     return PlainTextResponse("\n".join(sorted(_words)))
 
 
+# ── Authenticated endpoints ────────────────────────────────────────────────────
+
+class ScoreSubmission(BaseModel):
+    init_data: str
+    path: list[str]
+    gave_up: bool
+
+
+@app.post("/score")
+async def score(submission: ScoreSubmission):
+    try:
+        user = verify_init_data(submission.init_data, BOT_TOKEN)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=403, detail="Could not identify user")
+
+    puz = today_puzzle()
+    start, end, optimal = puz["start"], puz["end"], puz["optimal_steps"]
+
+    # Normalise to lowercase — never trust client casing
+    path = [w.strip().lower() for w in submission.path]
+
+    # Re-validate the full submitted path before touching the database
+    if not path:
+        raise HTTPException(status_code=422, detail="Path cannot be empty")
+    if path[0] != start:
+        raise HTTPException(status_code=422, detail=f"Path must start with '{start}'")
+    if not submission.gave_up and path[-1] != end:
+        raise HTTPException(status_code=422, detail=f"Path must end with '{end}'")
+    for i in range(len(path) - 1):
+        err = validate(path[i], path[i + 1], _words)
+        if err:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid move {path[i]}→{path[i + 1]}: {err}",
+            )
+
+    display_name = user.get("first_name", "Player")
+    if user.get("last_name"):
+        display_name += f" {user['last_name']}"
+
+    play_date = date.today().isoformat()
+
+    # save_score returns existing row silently on duplicate submission
+    stored = await save_score(
+        DB_PATH,
+        user_id=user_id,
+        username=user.get("username"),
+        display_name=display_name,
+        play_date=play_date,
+        word_length=puz["word_length"],
+        moves=len(path) - 1,
+        optimal=optimal,
+        gave_up=submission.gave_up,
+        path=path,
+    )
+
+    board = await get_leaderboard(DB_PATH, play_date, puz["word_length"])
+    delta = stored["moves"] - optimal
+
+    return {
+        "moves":   stored["moves"],
+        "optimal": optimal,
+        "delta":   delta,
+        "rank":    _rank(board, stored["moves"], stored["gave_up"]),
+        "message": _message(delta, stored["gave_up"]),
+    }
+
+
+@app.get("/leaderboard")
+async def leaderboard(authorization: str = Header(default="")):
+    if not authorization.startswith("tma "):
+        raise HTTPException(status_code=403, detail="Missing tma token")
+    try:
+        verify_init_data(authorization[4:], BOT_TOKEN)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    puz = today_puzzle()
+    return await get_leaderboard(DB_PATH, date.today().isoformat(), puz["word_length"])
+
+
+# StaticFiles must be mounted last — API routes registered above take priority
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
