@@ -32,9 +32,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+CORS_ORIGIN = os.environ.get("CORS_ORIGIN", "https://diddle.retard.zone")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://diddle.retard.zone"],
+    allow_origins=[CORS_ORIGIN],
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
