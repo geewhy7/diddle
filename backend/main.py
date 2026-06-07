@@ -15,10 +15,19 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(__file__))
 from game import load_words, build_graph, largest_component, pick_puzzle, validate
 from tg import verify_init_data
-from db import init_db, save_score, get_leaderboard
+from db import init_db, save_score, get_leaderboard, get_user_stats
 
-BOT_TOKEN = os.environ["TELEGRAM_TOKEN"]
-DB_PATH   = os.environ.get("DB_PATH", "diddle.db")
+BOT_TOKEN     = os.environ["TELEGRAM_TOKEN"]
+DB_PATH       = os.environ.get("DB_PATH", "diddle.db")
+DEV_SKIP_AUTH = os.environ.get("DEV_SKIP_AUTH", "").lower() == "true"
+_DEV_USER     = {"id": 999_999, "first_name": "Claude", "username": "claude_dev"}
+
+
+def _auth_user(init_data: str) -> dict:
+    """Verify initData. DEV_SKIP_AUTH=true accepts empty initData as a test user."""
+    if DEV_SKIP_AUTH and not init_data:
+        return _DEV_USER
+    return verify_init_data(init_data, BOT_TOKEN)
 
 _words: set[str] = set()
 _graph: dict = {}
@@ -111,7 +120,7 @@ class ScoreSubmission(BaseModel):
 @app.post("/score")
 async def score(submission: ScoreSubmission):
     try:
-        user = verify_init_data(submission.init_data, BOT_TOKEN)
+        user = _auth_user(submission.init_data)
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -177,12 +186,29 @@ async def leaderboard(authorization: str = Header(default="")):
     if not authorization.startswith("tma "):
         raise HTTPException(status_code=403, detail="Missing tma token")
     try:
-        verify_init_data(authorization[4:], BOT_TOKEN)
+        _auth_user(authorization[4:])
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
     puz = today_puzzle()
     return await get_leaderboard(DB_PATH, date.today().isoformat(), puz["word_length"])
+
+
+@app.get("/stats")
+async def stats(authorization: str = Header(default="")):
+    if not authorization.startswith("tma "):
+        raise HTTPException(status_code=403, detail="Missing tma token")
+    try:
+        user = _auth_user(authorization[4:])
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=403, detail="Could not identify user")
+
+    puz = today_puzzle()
+    return await get_user_stats(DB_PATH, user_id, puz["word_length"])
 
 
 # StaticFiles must be mounted last — API routes registered above take priority

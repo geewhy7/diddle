@@ -51,6 +51,40 @@ function emojiGrid(path, target) {
     .join('\n');
 }
 
+// ---- Stats -----------------------------------------------------------------
+async function fetchStats() {
+  if (!INIT_DATA) return null;
+  try {
+    const res = await fetch('/stats', {
+      headers: { Authorization: `tma ${INIT_DATA}` },
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (_) {
+    return null;
+  }
+}
+
+// Transform the server stats shape to the shape FinishedScreen expects.
+// Server keys: total_won, total_extra, current_streak, longest_streak,
+//              distribution (dict str→int, keys = extra moves 0-6)
+// Local keys:  wins, totalExtra, currentStreak, bestStreak, dist (array[7])
+function apiStatsToLocal(s) {
+  const dist = Array(7).fill(0);
+  for (const [k, v] of Object.entries(s.distribution || {})) {
+    const i = Math.min(parseInt(k, 10), 6);
+    if (!isNaN(i) && i >= 0) dist[i] = v;
+  }
+  return {
+    wins:          s.total_won      ?? 0,
+    totalExtra:    s.total_extra    ?? 0,
+    currentStreak: s.current_streak ?? 0,
+    bestStreak:    s.longest_streak ?? 0,
+    dist,
+    counted:       {},
+  };
+}
+
 // ---- Score submission ------------------------------------------------------
 async function postScore(path, gaveUp) {
   if (!INIT_DATA) return null;   // not running inside Telegram
@@ -178,8 +212,13 @@ function App() {
 
       if (win) {
         setStats(prev => recordWin(prev, puzzle.num, Math.max(0, finalMoves - puzzle.par)));
-        // Fire-and-forget: score submission doesn't block the UI transition
-        postScore(newPath, false).then(r => { if (r) setScoreResult(r); });
+        // Fire alongside the bounce animation; update stats from server when ready
+        postScore(newPath, false).then(async r => {
+          if (!r) return;
+          setScoreResult(r);
+          const apiStats = await fetchStats();
+          if (apiStats) setStats(apiStatsToLocal(apiStats));
+        });
         setTimeout(() => {
           setBounce(true);
           setTimeout(() => { setBounce(false); setScreen('finished'); }, 1000);
