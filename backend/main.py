@@ -28,10 +28,13 @@ DEV_SKIP_AUTH = os.environ.get("DEV_SKIP_AUTH", "").lower() == "true"
 _DEV_USER     = {"id": 999_999, "first_name": "Claude", "username": "claude_dev"}
 
 
-def _auth_user(init_data: str) -> dict:
-    """Verify initData. DEV_SKIP_AUTH=true accepts empty initData as a test user."""
+def _auth_user(init_data: str) -> tuple[dict, int | None]:
+    """
+    Verify initData. Returns (user_data, chat_id).
+    DEV_SKIP_AUTH=true accepts empty initData as a test user with no chat.
+    """
     if DEV_SKIP_AUTH and not init_data:
-        return _DEV_USER
+        return _DEV_USER, None
     return verify_init_data(init_data, BOT_TOKEN)
 
 _words: set[str] = set()
@@ -125,7 +128,7 @@ class ScoreSubmission(BaseModel):
 @app.post("/score")
 async def score(submission: ScoreSubmission):
     try:
-        user = _auth_user(submission.init_data)
+        user, _chat_id = _auth_user(submission.init_data)
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -193,7 +196,7 @@ def _check_leaderboard_auth(authorization: str) -> None:
     if not authorization.startswith("tma "):
         raise HTTPException(status_code=403, detail="Missing auth token")
     try:
-        _auth_user(authorization[4:])
+        _auth_user(authorization[4:])   # raises on bad sig; return value unused here
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -211,7 +214,7 @@ async def stats(authorization: str = Header(default="")):
     if not authorization.startswith("tma "):
         raise HTTPException(status_code=403, detail="Missing tma token")
     try:
-        user = _auth_user(authorization[4:])
+        user, _chat_id = _auth_user(authorization[4:])
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
 

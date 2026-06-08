@@ -34,10 +34,19 @@ FIELDS = {
 
 def test_valid_init_data_returns_user():
     init_data = make_init_data(FIELDS, BOT_TOKEN)
-    result = verify_init_data(init_data, BOT_TOKEN)
-    assert result["id"] == USER["id"]
-    assert result["first_name"] == USER["first_name"]
-    assert result["username"] == USER["username"]
+    user, chat_id = verify_init_data(init_data, BOT_TOKEN)
+    assert user["id"] == USER["id"]
+    assert user["first_name"] == USER["first_name"]
+    assert user["username"] == USER["username"]
+    assert chat_id is None   # no chat field in FIELDS
+
+
+def test_chat_id_extracted_when_present():
+    chat = {"id": -1001234567890, "type": "supergroup", "title": "Test Group"}
+    fields = {**FIELDS, "chat": json.dumps(chat, separators=(",", ":"))}
+    init_data = make_init_data(fields, BOT_TOKEN)
+    user, chat_id = verify_init_data(init_data, BOT_TOKEN)
+    assert chat_id == -1001234567890
 
 
 def test_wrong_token_rejected():
@@ -55,8 +64,6 @@ def test_tampered_auth_date_rejected():
 
 def test_tampered_user_rejected():
     init_data = make_init_data(FIELDS, BOT_TOKEN)
-    evil_user = urllib.parse.quote(json.dumps({"id": 99999, "first_name": "Eve"}))
-    # replace the user param value in the query string
     parsed = dict(urllib.parse.parse_qsl(init_data, keep_blank_values=True))
     parsed["user"] = json.dumps({"id": 99999, "first_name": "Eve"})
     tampered = urllib.parse.urlencode(parsed)
@@ -65,7 +72,7 @@ def test_tampered_user_rejected():
 
 
 def test_missing_hash_rejected():
-    init_data = urllib.parse.urlencode(FIELDS)   # no hash field
+    init_data = urllib.parse.urlencode(FIELDS)
     with pytest.raises(ValueError, match="Missing hash"):
         verify_init_data(init_data, BOT_TOKEN)
 
@@ -76,7 +83,8 @@ def test_empty_string_rejected():
 
 
 def test_no_user_field_returns_empty_dict():
-    fields = {"auth_date": "1717776000"}   # valid but no user key
+    fields = {"auth_date": "1717776000"}
     init_data = make_init_data(fields, BOT_TOKEN)
-    result = verify_init_data(init_data, BOT_TOKEN)
-    assert result == {}
+    user, chat_id = verify_init_data(init_data, BOT_TOKEN)
+    assert user == {}
+    assert chat_id is None
