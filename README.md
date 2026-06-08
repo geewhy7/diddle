@@ -1,60 +1,117 @@
-# Word Ladder
+# Diddle
 
-Daily word-ladder puzzle as a Telegram Mini App.
-Same puzzle for everyone. Private gameplay. Group leaderboard.
+Daily word ladder puzzle delivered as a Telegram Mini App. Everyone gets the same start word and target word each day. Solve it in as few steps as possible, compare scores with friends.
 
-## Before you start coding
+## How it works
 
-Three manual steps in Telegram that can't be scripted:
+1. Someone sends `/play` in a group chat
+2. Bot replies with a **Play Diddle 🎮** button
+3. Tapping opens the puzzle in a Telegram webview (private — no chat spam)
+4. On completion, score is recorded server-side
+5. `/scores` shows today's ranked leaderboard at any time
 
-1. **Create a bot** — message `@BotFather` → `/newbot` → copy token into `.env`
-2. **Register the game** — `@BotFather` → `/newgame` → short name: `wordladder`
-3. **Set the game URL** — `@BotFather` → `/setgameurl` → `https://yourdomain.com`
+## Stack
 
-## Local setup
+| Layer    | Tech                              |
+|----------|-----------------------------------|
+| Backend  | FastAPI + uvicorn (port 7113)     |
+| Frontend | React — static files via FastAPI  |
+| Database | SQLite + aiosqlite                |
+| Bot      | python-telegram-bot v20           |
+| Tunnel   | Cloudflare → `diddle.retard.zone` |
+
+## Setup
+
+### 1. Environment
 
 ```bash
-git clone https://github.com/YOURNAME/word-ladder
-cd word-ladder
-
 cp .env.example .env
-# edit .env with your values
+# Fill in TELEGRAM_TOKEN (from @BotFather → /newbot)
+```
 
-# Install the pre-commit hook
-cp deploy/pre-commit .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
+### 2. Dependencies
 
-# Backend
+```bash
+pip install -r backend/requirements.txt
+pip install -r bot/requirements.txt
+```
+
+### 3. Register the Mini App with BotFather
+
+This step is required for the `/play` button to open the app with Telegram initData.
+
+Open @BotFather in Telegram:
+```
+/newapp
+→ select your bot
+→ Title:      Diddle
+→ Short name: diddle
+→ URL:        https://diddle.retard.zone
+```
+
+The bot's `/play` button sends `https://t.me/<botusername>/diddle` — this only works once BotFather has registered the app.
+
+### 4. Run
+
+**Backend** — systemd service:
+```bash
+sudo cp deploy/diddle-backend.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now diddle-backend
+```
+
+**Bot** — tmux (keeps logs visible):
+```bash
+tmux new -s bot
+cd bot && python3 bot.py
+# Ctrl-B D to detach; tmux attach -t bot to reattach
+```
+
+### 5. Verify
+
+```bash
+curl http://localhost:7113/health
+# {"status":"ok","day":1}
+```
+
+Then open `https://diddle.retard.zone` in a browser and send `/play` in Telegram.
+
+## Development
+
+Set `DEV_SKIP_AUTH=true` in `.env` to bypass Telegram initData verification — empty `init_data` is accepted as a test user. **Must be `false` in production.**
+
+```bash
 cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-
-# Bot (separate terminal)
-cd bot
-pip install -r requirements.txt
-python3 bot.py
-
-# Frontend — needs HTTPS for Telegram, use cloudflared or ngrok locally
-cloudflared tunnel --url http://localhost:3000
-python3 -m http.server 3000 --directory ../frontend/
+uvicorn main:app --reload --port 7113
 ```
 
-## Deployment
+The Cloudflare tunnel handles HTTPS externally. FastAPI serves both the API and the static frontend on port 7113 — no nginx, no separate static server.
 
-See `SPEC.md` → Deployment checklist.
-Short version: Ubuntu VPS + Nginx + certbot + systemd.
+## Bot commands
 
-## Architecture
+| Command   | Description                    |
+|-----------|--------------------------------|
+| `/play`   | Open today's puzzle (Mini App) |
+| `/scores` | Show today's leaderboard       |
+| `/help`   | Game rules                     |
+
+## Project layout
 
 ```
-Telegram → Bot → sendGame → [Play button]
-                               ↓
-                         Mini App webview
-                               ↓ fetch
-                         FastAPI backend
-                               ↓
-                           SQLite DB
-```
+backend/
+  main.py     FastAPI app, API routes, static file serving
+  game.py     Word ladder engine (do not modify)
+  db.py       Database operations
+  tg.py       Telegram initData HMAC verification
 
-See `CLAUDE.md` for full architecture and coding rules.
-See `SPEC.md` for product spec and API contract.
+frontend/
+  index.html  Entry point
+  (React component and style files)
+
+bot/
+  bot.py      /play /scores /help
+
+deploy/
+  diddle-backend.service  systemd unit for uvicorn
+  diddle-bot.service      systemd unit (reference only — bot runs in tmux)
+```
