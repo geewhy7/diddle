@@ -141,13 +141,19 @@ function Countdown() {
   return <div className="countdown">Next Diddle in <b>{v}</b></div>;
 }
 
-function FinishedScreen({ puzzle, path, stats, onShare, onClose }) {
+function ordinalSuffix(n) {
+  const s = ["th","st","nd","rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function FinishedScreen({ puzzle, path, stats, scoreResult, onShare, onClose }) {
   const moves = path.length - 1;
   const best = puzzle.par;
   const extra = Math.max(0, moves - best);
   const perfect = extra === 0;
   const avg = stats.wins ? stats.totalExtra / stats.wins : 0;
   const maxd = Math.max(1, ...stats.dist);
+  const ordinal = scoreResult?.ordinal_position;
 
   return (
     <div className="screen">
@@ -158,6 +164,7 @@ function FinishedScreen({ puzzle, path, stats, onShare, onClose }) {
         <div className="finish-lines">
           <div>You used <b>{moves}</b> {moves === 1 ? "move" : "moves"}.</div>
           <div>The best solution was <b>{best}</b> {best === 1 ? "move" : "moves"}.</div>
+          {ordinal && <div>You were the <b>{ordinalSuffix(ordinal)}</b> person to finish today.</div>}
         </div>
         <button className="copy" onClick={onShare}>Copy results</button>
 

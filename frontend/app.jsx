@@ -6,6 +6,7 @@
 const tg          = window.Telegram?.WebApp ?? null;
 const INIT_DATA   = tg?.initData   ?? '';
 const COLOR_SCHEME = tg?.colorScheme ?? 'light';
+const CHAT_ID     = tg?.initDataUnsafe?.chat?.id ?? null;
 
 if (tg) {
   tg.ready();
@@ -86,20 +87,22 @@ function apiStatsToLocal(s) {
 }
 
 // ---- Score submission ------------------------------------------------------
-async function postScore(path, gaveUp) {
+async function postScore(path, gaveUp, invalidAttempts) {
   if (!INIT_DATA) return null;   // not running inside Telegram
   try {
     const res = await fetch('/score', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        init_data: INIT_DATA,
-        path:      path.map(w => w.toLowerCase()),
-        gave_up:   gaveUp,
+        init_data:        INIT_DATA,
+        path:             path.map(w => w.toLowerCase()),
+        gave_up:          gaveUp,
+        invalid_attempts: invalidAttempts ?? 0,
+        chat_id:          CHAT_ID,
       }),
     });
     if (!res.ok) return null;
-    return await res.json();     // { moves, optimal, delta, rank, message }
+    return await res.json();     // { moves, optimal, delta, rank, ordinal_position, message }
   } catch (_) {
     return null;
   }
@@ -117,9 +120,10 @@ function App() {
   const [promoteIndex, setPromoteIndex] = React.useState(-1);
   const [bounce,       setBounce]       = React.useState(false);
   const [toast,        setToast]        = React.useState(null);
-  const [stats,        setStats]        = React.useState(loadStats);
-  const [scoreResult,  setScoreResult]  = React.useState(null);
-  const [errorMsg,     setErrorMsg]     = React.useState(null);
+  const [stats,           setStats]           = React.useState(loadStats);
+  const [scoreResult,     setScoreResult]     = React.useState(null);
+  const [errorMsg,        setErrorMsg]        = React.useState(null);
+  const [invalidAttempts, setInvalidAttempts] = React.useState(0);
 
   // ---- Load puzzle from API on mount ---------------------------------------
   React.useEffect(() => {
@@ -189,6 +193,7 @@ function App() {
     if (!res.ok) {
       setHint({ text: res.reason, err: true });
       setShake(true);
+      setInvalidAttempts(n => n + 1);
       setTimeout(() => setShake(false), 420);
       return;
     }
@@ -213,7 +218,7 @@ function App() {
       if (win) {
         setStats(prev => recordWin(prev, puzzle.num, Math.max(0, finalMoves - puzzle.par)));
         // Fire alongside the bounce animation; update stats from server when ready
-        postScore(newPath, false).then(async r => {
+        postScore(newPath, false, invalidAttempts).then(async r => {
           if (!r) return;
           setScoreResult(r);
           const apiStats = await fetchStats();
@@ -256,6 +261,7 @@ function App() {
     body = <ErrorScreen message={errorMsg} onRetry={handleRetry} />;
   } else if (screen === 'finished') {
     body = <FinishedScreen puzzle={puzzle} path={path} stats={stats}
+                           scoreResult={scoreResult}
                            onShare={handleShare} onClose={handleClose} />;
   } else if (screen === 'gaveup') {
     body = <GaveUpScreen puzzle={puzzle} path={path} onClose={handleClose} />;
