@@ -20,7 +20,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(__file__))
 from game import load_words, build_graph, largest_component, pick_puzzle, validate
 from tg import verify_init_data
-from db import init_db, save_score, get_leaderboard, get_user_stats
+from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position
 
 BOT_TOKEN     = os.environ["TELEGRAM_TOKEN"]
 DB_PATH       = os.environ.get("DB_PATH", "diddle.db")
@@ -123,12 +123,14 @@ class ScoreSubmission(BaseModel):
     init_data: str
     path: list[str]
     gave_up: bool
+    invalid_attempts: int = 0
+    chat_id: int | None = None
 
 
 @app.post("/score")
 async def score(submission: ScoreSubmission):
     try:
-        user, _chat_id = _auth_user(submission.init_data)
+        user, init_chat_id = _auth_user(submission.init_data)
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
 
@@ -163,6 +165,9 @@ async def score(submission: ScoreSubmission):
 
     play_date = date.today().isoformat()
 
+    # Prefer chat_id from initData (authoritative); fall back to client-supplied value
+    chat_id = init_chat_id if init_chat_id is not None else submission.chat_id
+
     # save_score returns existing row silently on duplicate submission
     stored = await save_score(
         DB_PATH,
@@ -175,17 +180,24 @@ async def score(submission: ScoreSubmission):
         optimal=optimal,
         gave_up=submission.gave_up,
         path=path,
+        invalid_attempts=submission.invalid_attempts,
+        chat_id=chat_id,
     )
 
     board = await get_leaderboard(DB_PATH, play_date, puz["word_length"])
     delta = stored["moves"] - optimal
+    ordinal = await get_ordinal_position(
+        DB_PATH, play_date, puz["word_length"],
+        stored["submitted_at"], stored["chat_id"],
+    )
 
     return {
-        "moves":   stored["moves"],
-        "optimal": optimal,
-        "delta":   delta,
-        "rank":    _rank(board, stored["moves"], stored["gave_up"]),
-        "message": _message(delta, stored["gave_up"]),
+        "moves":            stored["moves"],
+        "optimal":          optimal,
+        "delta":            delta,
+        "rank":             _rank(board, stored["moves"], stored["gave_up"]),
+        "ordinal_position": ordinal,
+        "message":          _message(delta, stored["gave_up"]),
     }
 
 

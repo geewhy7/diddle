@@ -56,32 +56,74 @@ async def save_score(
     optimal: int,
     gave_up: bool,
     path: list[str],
+    invalid_attempts: int = 0,
+    chat_id: int | None = None,
 ) -> dict:
     """
     Insert a score. On UNIQUE conflict (same user + day + word_length) the
     existing row is returned unchanged — retries and replays are silent.
-    Returns {"moves": int, "optimal": int, "gave_up": bool}.
+    Returns {"moves", "optimal", "gave_up", "submitted_at", "chat_id"}.
     """
     async with aiosqlite.connect(db_path) as db:
         try:
             await db.execute(
                 """INSERT INTO scores
                        (user_id, username, display_name, play_date, word_length,
-                        moves, optimal, gave_up, path)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        moves, optimal, gave_up, path, invalid_attempts, chat_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (user_id, username, display_name, play_date, word_length,
-                 moves, optimal, int(gave_up), json.dumps(path)),
+                 moves, optimal, int(gave_up), json.dumps(path),
+                 invalid_attempts, chat_id),
             )
             await db.commit()
         except aiosqlite.IntegrityError:
             pass  # duplicate submission — fall through to SELECT
         cur = await db.execute(
-            """SELECT moves, optimal, gave_up FROM scores
+            """SELECT moves, optimal, gave_up, submitted_at, chat_id FROM scores
                WHERE user_id = ? AND play_date = ? AND word_length = ?""",
             (user_id, play_date, word_length),
         )
         row = await cur.fetchone()
-        return {"moves": row[0], "optimal": row[1], "gave_up": bool(row[2])}
+        return {
+            "moves":        row[0],
+            "optimal":      row[1],
+            "gave_up":      bool(row[2]),
+            "submitted_at": row[3],
+            "chat_id":      row[4],
+        }
+
+
+async def get_ordinal_position(
+    db_path: str,
+    play_date: str,
+    word_length: int,
+    submitted_at: str,
+    chat_id: int | None,
+) -> int:
+    """
+    Count of gave_up=0 scores submitted before this one for today in the
+    same chat context (or across all NULL-chat scores when chat_id is None).
+    Returns 1-based position.
+    """
+    async with aiosqlite.connect(db_path) as db:
+        if chat_id is None:
+            cur = await db.execute(
+                """SELECT COUNT(*) FROM scores
+                   WHERE play_date = ? AND word_length = ?
+                     AND gave_up = 0 AND chat_id IS NULL
+                     AND submitted_at < ?""",
+                (play_date, word_length, submitted_at),
+            )
+        else:
+            cur = await db.execute(
+                """SELECT COUNT(*) FROM scores
+                   WHERE play_date = ? AND word_length = ?
+                     AND gave_up = 0 AND chat_id = ?
+                     AND submitted_at < ?""",
+                (play_date, word_length, chat_id, submitted_at),
+            )
+        (count,) = await cur.fetchone()
+    return count + 1
 
 
 def _compute_streaks(rows: list, today: date) -> tuple[int, int]:
