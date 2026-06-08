@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS scores (
     UNIQUE(user_id, play_date, word_length)
 );
 CREATE INDEX IF NOT EXISTS idx_scores_date ON scores(play_date);
+
+CREATE TABLE IF NOT EXISTS group_members (
+    user_id      INTEGER NOT NULL,
+    chat_id      INTEGER NOT NULL,
+    display_name TEXT NOT NULL,
+    username     TEXT,
+    last_seen    TEXT NOT NULL,
+    PRIMARY KEY (user_id, chat_id)
+);
+CREATE INDEX IF NOT EXISTS idx_gm_chat ON group_members(chat_id);
 """
 
 _MIGRATE = """
@@ -224,6 +234,33 @@ async def get_user_stats(db_path: str, user_id: int, word_length: int) -> dict:
     }
 
 
+async def record_group_member(
+    db_path: str,
+    user_id: int,
+    chat_id: int,
+    display_name: str,
+    username: str | None,
+) -> None:
+    """
+    Upsert a (user_id, chat_id) pair in group_members.
+    Called by the bot whenever a user runs a command in a group.
+    This is how the leaderboard knows which users belong to which group.
+    """
+    from datetime import datetime
+    now = datetime.utcnow().isoformat(sep=" ", timespec="seconds")
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """INSERT INTO group_members (user_id, chat_id, display_name, username, last_seen)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(user_id, chat_id) DO UPDATE SET
+                   display_name = excluded.display_name,
+                   username     = excluded.username,
+                   last_seen    = excluded.last_seen""",
+            (user_id, chat_id, display_name, username, now),
+        )
+        await db.commit()
+
+
 async def get_leaderboard(
     db_path: str,
     play_date: str,
@@ -232,7 +269,9 @@ async def get_leaderboard(
 ) -> list[dict]:
     """
     Return scores for the given day.
-    If chat_id is provided, filter to that group only; otherwise return all.
+    If chat_id is provided, restrict to users who are members of that group
+    (via the group_members table — populated by bot command interactions).
+    Scores are global; the group filter is on membership, not where the game was played.
     Completions sorted by moves ascending; gave_up entries at the bottom.
     """
     async with aiosqlite.connect(db_path) as db:
@@ -245,10 +284,12 @@ async def get_leaderboard(
             )
         else:
             cur = await db.execute(
-                """SELECT display_name, moves, optimal, gave_up FROM scores
-                   WHERE play_date = ? AND word_length = ? AND chat_id = ?
-                   ORDER BY gave_up ASC, moves ASC""",
-                (play_date, word_length, chat_id),
+                """SELECT s.display_name, s.moves, s.optimal, s.gave_up
+                   FROM scores s
+                   JOIN group_members gm ON gm.user_id = s.user_id AND gm.chat_id = ?
+                   WHERE s.play_date = ? AND s.word_length = ?
+                   ORDER BY s.gave_up ASC, s.moves ASC""",
+                (chat_id, play_date, word_length),
             )
         rows = await cur.fetchall()
         return [
@@ -267,36 +308,50 @@ async def get_group_stats(
     """
     Returns puzzle_difficulty (avg delta for today's completions) and per-user
     handicaps (avg lifetime delta, completions only, min 3 days played).
-    Filtered by chat_id when provided.
+    Filtered by group_members when chat_id is provided.
     """
-    chat_filter      = "AND chat_id = ?"    if chat_id is not None else "AND chat_id IS NULL"
-    chat_filter_all  = "AND chat_id = ?"    if chat_id is not None else ""
-    chat_args        = (chat_id,)            if chat_id is not None else ()
-
     async with aiosqlite.connect(db_path) as db:
-        # Today's difficulty — avg (moves - optimal) for completions in this chat
-        cur = await db.execute(
-            f"""SELECT AVG(moves - optimal) FROM scores
-                WHERE play_date = ? AND word_length = ? AND gave_up = 0
-                {chat_filter}""",
-            (play_date, word_length, *chat_args),
-        )
+        if chat_id is None:
+            cur = await db.execute(
+                """SELECT AVG(moves - optimal) FROM scores
+                   WHERE play_date = ? AND word_length = ? AND gave_up = 0""",
+                (play_date, word_length),
+            )
+        else:
+            cur = await db.execute(
+                """SELECT AVG(s.moves - s.optimal) FROM scores s
+                   JOIN group_members gm ON gm.user_id = s.user_id AND gm.chat_id = ?
+                   WHERE s.play_date = ? AND s.word_length = ? AND s.gave_up = 0""",
+                (chat_id, play_date, word_length),
+            )
         (avg_diff,) = await cur.fetchone()
         puzzle_difficulty = round(avg_diff, 1) if avg_diff is not None else None
 
-        # All-time per-user handicaps
-        cur = await db.execute(
-            f"""SELECT display_name,
-                       AVG(moves - optimal)  AS handicap,
-                       COUNT(*)              AS days_played
-                FROM scores
-                WHERE word_length = ? AND gave_up = 0
-                {chat_filter_all}
-                GROUP BY user_id
-                HAVING COUNT(*) >= 3
-                ORDER BY AVG(moves - optimal) ASC""",
-            (word_length, *chat_args),
-        )
+        if chat_id is None:
+            cur = await db.execute(
+                """SELECT s.display_name,
+                          AVG(s.moves - s.optimal) AS handicap,
+                          COUNT(*)                 AS days_played
+                   FROM scores s
+                   WHERE s.word_length = ? AND s.gave_up = 0
+                   GROUP BY s.user_id
+                   HAVING COUNT(*) >= 3
+                   ORDER BY AVG(s.moves - s.optimal) ASC""",
+                (word_length,),
+            )
+        else:
+            cur = await db.execute(
+                """SELECT s.display_name,
+                          AVG(s.moves - s.optimal) AS handicap,
+                          COUNT(*)                 AS days_played
+                   FROM scores s
+                   JOIN group_members gm ON gm.user_id = s.user_id AND gm.chat_id = ?
+                   WHERE s.word_length = ? AND s.gave_up = 0
+                   GROUP BY s.user_id
+                   HAVING COUNT(*) >= 3
+                   ORDER BY AVG(s.moves - s.optimal) ASC""",
+                (chat_id, word_length),
+            )
         rows = await cur.fetchall()
 
     handicaps = [

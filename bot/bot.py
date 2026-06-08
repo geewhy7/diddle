@@ -31,7 +31,34 @@ async def _set_mini_app_url(app: Application) -> None:
     log.info("Mini App URL: %s", _mini_app_url)
 
 
+async def _record_member(update: Update) -> None:
+    """Record the interacting user as a member of this chat (group or supergroup)."""
+    chat = update.effective_chat
+    user = update.effective_user
+    if chat is None or user is None or chat.type not in ("group", "supergroup"):
+        return
+    display_name = user.first_name
+    if user.last_name:
+        display_name += f" {user.last_name}"
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{BACKEND_URL}/group/member",
+                headers={"Authorization": f"bot {TOKEN}"},
+                json={
+                    "user_id":      user.id,
+                    "chat_id":      chat.id,
+                    "display_name": display_name,
+                    "username":     user.username,
+                },
+                timeout=5.0,
+            )
+    except Exception:
+        log.warning("Failed to record group member %s in chat %s", user.id, chat.id)
+
+
 async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _record_member(update)
     keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
     await update.message.reply_text(
         "Today's puzzle is ready 🔤",
@@ -79,6 +106,7 @@ def _format_leaderboard(board: list[dict], title: str = "Today's Leaderboard") -
 
 
 async def cmd_scores(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _record_member(update)
     chat_id = update.effective_chat.id
     board   = await _fetch_leaderboard(chat_id)
     if board is None:
@@ -107,6 +135,7 @@ async def cmd_scores_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def cmd_alltime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _record_member(update)
     chat_id = update.effective_chat.id
     try:
         async with httpx.AsyncClient() as client:
@@ -142,6 +171,7 @@ async def cmd_alltime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _record_member(update)
     await update.message.reply_text(
         "🔤 *Diddle* — daily word ladder\n\n"
         "Turn today's start word into the target, changing one letter at a time\\.\n\n"

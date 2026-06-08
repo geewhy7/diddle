@@ -20,7 +20,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(__file__))
 from game import load_words, build_graph, largest_component, pick_puzzle, validate
 from tg import verify_init_data
-from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position, get_group_stats
+from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position, get_group_stats, record_group_member
 
 BOT_TOKEN     = os.environ["TELEGRAM_TOKEN"]
 DB_PATH       = os.environ.get("DB_PATH", "diddle.db")
@@ -237,6 +237,28 @@ async def stats_group(
         puz["optimal_steps"], chat_id,
     )
     return {"puzzle_day": puz["day"], **result}
+
+
+class GroupMemberRecord(BaseModel):
+    user_id:      int
+    chat_id:      int
+    display_name: str
+    username:     str | None = None
+
+
+@app.post("/group/member")
+async def group_member(record: GroupMemberRecord, authorization: str = Header(default="")):
+    """Bot calls this whenever a user interacts in a group. Bot-token auth only."""
+    if not authorization.startswith("bot ") or authorization[4:] != BOT_TOKEN:
+        raise HTTPException(status_code=403, detail="Bot auth required")
+    await record_group_member(
+        DB_PATH,
+        user_id=record.user_id,
+        chat_id=record.chat_id,
+        display_name=record.display_name,
+        username=record.username,
+    )
+    return {"ok": True}
 
 
 @app.get("/stats")
