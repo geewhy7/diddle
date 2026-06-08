@@ -94,17 +94,18 @@ async def cmd_alltime(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     diff    = data.get("puzzle_difficulty")
     players = data.get("players", [])
 
-    diff_str = f"\\+{diff:.1f}" if diff is not None and diff >= 0 else (
-               f"{diff:.1f}" if diff is not None else "n/a"
-    )
+    def _fmt_delta(n: float) -> str:
+        s = f"+{n:.1f}" if n >= 0 else f"{n:.1f}"
+        return _escape(s)
+
+    diff_str = _fmt_delta(diff) if diff is not None else "n/a"
 
     medals = ["🥇", "🥈", "🥉"]
     lines  = ["🏌️ *All\\-Time Standings*", f"Today's difficulty: {diff_str}\n"]
     for i, p in enumerate(players):
-        medal    = medals[i] if i < len(medals) else "  "
-        hcap_str = f"\\+{p['handicap']:.1f}" if p["handicap"] >= 0 else f"{p['handicap']:.1f}"
+        medal = medals[i] if i < len(medals) else "  "
         lines.append(
-            f"{medal} {_escape(p['name'])}  {hcap_str} avg  "
+            f"{medal} {_escape(p['name'])}  {_fmt_delta(p['handicap'])} avg  "
             f"\\({p['days_played']} {'day' if p['days_played'] == 1 else 'days'}\\)"
         )
 
