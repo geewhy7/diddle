@@ -60,13 +60,13 @@ FastAPI handles everything on that port: API routes AND static frontend files.
 No nginx. No separate static file server.
 
 ---
-
+React (via Claude Design output) — do not add build step 
 ## Tech stack — decided, do not change
 
 | Layer       | Choice                       | Reason                                     |
 |-------------|------------------------------|--------------------------------------------|
 | Backend     | FastAPI + uvicorn            | Async, serves static files, works with game.py |
-| Frontend    | Vanilla HTML/CSS/JS          | No build step, 3 files, works in Telegram  |
+| Frontend    | React (via Claude Design output)        | No build step, works in Telegram  |
 | Database    | SQLite + aiosqlite           | File-based, no separate service            |
 | Bot         | python-telegram-bot v20      | Async, already used                        |
 | Tunnel      | Cloudflare (already running) | HTTPS handled externally, no config needed |
