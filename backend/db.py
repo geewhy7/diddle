@@ -5,26 +5,42 @@ import aiosqlite
 
 _CREATE = """
 CREATE TABLE IF NOT EXISTS scores (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id      INTEGER NOT NULL,
-    username     TEXT,
-    display_name TEXT NOT NULL,
-    play_date    TEXT NOT NULL,
-    word_length  INTEGER NOT NULL DEFAULT 5,
-    moves        INTEGER NOT NULL,
-    optimal      INTEGER NOT NULL,
-    gave_up      INTEGER NOT NULL DEFAULT 0,
-    path         TEXT NOT NULL,
-    submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id           INTEGER NOT NULL,
+    username          TEXT,
+    display_name      TEXT NOT NULL,
+    play_date         TEXT NOT NULL,
+    word_length       INTEGER NOT NULL DEFAULT 5,
+    moves             INTEGER NOT NULL,
+    optimal           INTEGER NOT NULL,
+    gave_up           INTEGER NOT NULL DEFAULT 0,
+    path              TEXT NOT NULL,
+    invalid_attempts  INTEGER NOT NULL DEFAULT 0,
+    chat_id           INTEGER,
+    submitted_at      TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, play_date, word_length)
 );
 CREATE INDEX IF NOT EXISTS idx_scores_date ON scores(play_date);
+"""
+
+_MIGRATE = """
+ALTER TABLE scores ADD COLUMN invalid_attempts INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE scores ADD COLUMN chat_id INTEGER;
 """
 
 
 async def init_db(db_path: str) -> None:
     async with aiosqlite.connect(db_path) as db:
         await db.executescript(_CREATE)
+        # Apply any columns that may be missing from older schemas
+        for stmt in _MIGRATE.strip().splitlines():
+            stmt = stmt.strip()
+            if not stmt:
+                continue
+            try:
+                await db.execute(stmt)
+            except Exception:
+                pass  # column already exists
         await db.commit()
 
 
