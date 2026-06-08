@@ -3,14 +3,15 @@ import os
 
 import httpx
 from dotenv import load_dotenv
-from telegram import KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 load_dotenv()
 
-TOKEN       = os.environ["TELEGRAM_TOKEN"]
-GAME_URL    = os.environ.get("GAME_URL",    "https://diddle.retard.zone")
-BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:7113")
+TOKEN        = os.environ["TELEGRAM_TOKEN"]
+GAME_URL     = os.environ.get("GAME_URL",     "https://diddle.retard.zone")
+BACKEND_URL  = os.environ.get("BACKEND_URL",  "http://localhost:7113")
+BOT_APP_NAME = os.environ.get("BOT_APP_NAME", "diddle")
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
@@ -18,12 +19,23 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Populated at startup once we know the bot's username.
+_mini_app_url: str = GAME_URL
+
+
+async def _set_mini_app_url(app: Application) -> None:
+    """Resolve the t.me/{botname}/{appname} Mini App link at startup."""
+    global _mini_app_url
+    me = await app.bot.get_me()
+    _mini_app_url = f"https://t.me/{me.username}/{BOT_APP_NAME}"
+    log.info("Mini App URL: %s", _mini_app_url)
+
 
 async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [[KeyboardButton("Play Diddle 🎮", web_app=WebAppInfo(url=GAME_URL))]]
+    keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
     await update.message.reply_text(
         "Today's puzzle is ready 🔤",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
+        reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
 
@@ -52,7 +64,7 @@ async def cmd_scores(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     lines = ["🏆 *Today's Leaderboard*\n"]
     for i, e in enumerate(completions, 1):
         delta = e["moves"] - e["optimal"]
-        badge = "✨" if delta == 0 else ("+" + str(delta))
+        badge = "✨" if delta == 0 else f"\\+{delta}"
         lines.append(f"{i}\\. {e['name']} — {e['moves']}/{e['optimal']} {badge}")
     for e in gave_up:
         lines.append(f"— {e['name']} gave up")
@@ -74,7 +86,12 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main() -> None:
-    app = Application.builder().token(TOKEN).build()
+    app = (
+        Application.builder()
+        .token(TOKEN)
+        .post_init(_set_mini_app_url)
+        .build()
+    )
     app.add_handler(CommandHandler("play",   cmd_play))
     app.add_handler(CommandHandler("scores", cmd_scores))
     app.add_handler(CommandHandler("help",   cmd_help))
