@@ -11,7 +11,7 @@ def game_day() -> int:
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,7 +20,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(__file__))
 from game import load_words, build_graph, largest_component, pick_puzzle, validate
 from tg import verify_init_data
-from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position
+from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position, get_group_stats
 
 BOT_TOKEN     = os.environ["TELEGRAM_TOKEN"]
 DB_PATH       = os.environ.get("DB_PATH", "diddle.db")
@@ -214,11 +214,29 @@ def _check_leaderboard_auth(authorization: str) -> None:
 
 
 @app.get("/leaderboard")
-async def leaderboard(authorization: str = Header(default="")):
+async def leaderboard(
+    authorization: str = Header(default=""),
+    chat_id: int | None = Query(default=None),
+):
     _check_leaderboard_auth(authorization)
 
     puz = today_puzzle()
-    return await get_leaderboard(DB_PATH, date.today().isoformat(), puz["word_length"])
+    return await get_leaderboard(DB_PATH, date.today().isoformat(), puz["word_length"], chat_id)
+
+
+@app.get("/stats/group")
+async def stats_group(
+    authorization: str = Header(default=""),
+    chat_id: int | None = Query(default=None),
+):
+    _check_leaderboard_auth(authorization)
+
+    puz = today_puzzle()
+    result = await get_group_stats(
+        DB_PATH, date.today().isoformat(), puz["word_length"],
+        puz["optimal_steps"], chat_id,
+    )
+    return {"puzzle_day": puz["day"], **result}
 
 
 @app.get("/stats")

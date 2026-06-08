@@ -224,20 +224,86 @@ async def get_user_stats(db_path: str, user_id: int, word_length: int) -> dict:
     }
 
 
-async def get_leaderboard(db_path: str, play_date: str, word_length: int) -> list[dict]:
+async def get_leaderboard(
+    db_path: str,
+    play_date: str,
+    word_length: int,
+    chat_id: int | None = None,
+) -> list[dict]:
     """
-    Return all scores for the given day.
+    Return scores for the given day.
+    If chat_id is provided, filter to that group only; otherwise return all.
     Completions sorted by moves ascending; gave_up entries at the bottom.
     """
     async with aiosqlite.connect(db_path) as db:
-        cur = await db.execute(
-            """SELECT display_name, moves, optimal, gave_up FROM scores
-               WHERE play_date = ? AND word_length = ?
-               ORDER BY gave_up ASC, moves ASC""",
-            (play_date, word_length),
-        )
+        if chat_id is None:
+            cur = await db.execute(
+                """SELECT display_name, moves, optimal, gave_up FROM scores
+                   WHERE play_date = ? AND word_length = ?
+                   ORDER BY gave_up ASC, moves ASC""",
+                (play_date, word_length),
+            )
+        else:
+            cur = await db.execute(
+                """SELECT display_name, moves, optimal, gave_up FROM scores
+                   WHERE play_date = ? AND word_length = ? AND chat_id = ?
+                   ORDER BY gave_up ASC, moves ASC""",
+                (play_date, word_length, chat_id),
+            )
         rows = await cur.fetchall()
         return [
             {"name": r[0], "moves": r[1], "optimal": r[2], "gave_up": bool(r[3])}
             for r in rows
         ]
+
+
+async def get_group_stats(
+    db_path: str,
+    play_date: str,
+    word_length: int,
+    optimal: int,
+    chat_id: int | None = None,
+) -> dict:
+    """
+    Returns puzzle_difficulty (avg delta for today's completions) and per-user
+    handicaps (avg lifetime delta, completions only, min 3 days played).
+    Filtered by chat_id when provided.
+    """
+    chat_filter      = "AND chat_id = ?"    if chat_id is not None else "AND chat_id IS NULL"
+    chat_filter_all  = "AND chat_id = ?"    if chat_id is not None else ""
+    chat_args        = (chat_id,)            if chat_id is not None else ()
+
+    async with aiosqlite.connect(db_path) as db:
+        # Today's difficulty — avg (moves - optimal) for completions in this chat
+        cur = await db.execute(
+            f"""SELECT AVG(moves - optimal) FROM scores
+                WHERE play_date = ? AND word_length = ? AND gave_up = 0
+                {chat_filter}""",
+            (play_date, word_length, *chat_args),
+        )
+        (avg_diff,) = await cur.fetchone()
+        puzzle_difficulty = round(avg_diff, 1) if avg_diff is not None else None
+
+        # All-time per-user handicaps
+        cur = await db.execute(
+            f"""SELECT display_name,
+                       AVG(moves - optimal)  AS handicap,
+                       COUNT(*)              AS days_played
+                FROM scores
+                WHERE word_length = ? AND gave_up = 0
+                {chat_filter_all}
+                GROUP BY user_id
+                HAVING COUNT(*) >= 3
+                ORDER BY AVG(moves - optimal) ASC""",
+            (word_length, *chat_args),
+        )
+        rows = await cur.fetchall()
+
+    handicaps = [
+        {"name": r[0], "handicap": round(r[1], 1), "days_played": r[2]}
+        for r in rows
+    ]
+    return {
+        "puzzle_difficulty": puzzle_difficulty,
+        "handicaps":         handicaps,
+    }
