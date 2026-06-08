@@ -3,6 +3,11 @@ import sys
 from contextlib import asynccontextmanager
 from datetime import date
 
+EPOCH = date(2026, 6, 7)   # day 1
+
+def game_day() -> int:
+    return (date.today() - EPOCH).days + 1
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -68,7 +73,7 @@ def today_puzzle() -> dict:
             "start": start,
             "end": end,
             "optimal_steps": len(path) - 1,
-            "day": today % 10_000,
+            "day": game_day(),
             "word_length": 5,
         }
         _puzzle_day = today
@@ -96,7 +101,7 @@ def _message(delta: int, gave_up: bool) -> str:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "day": date.today().toordinal() % 10_000}
+    return {"status": "ok", "day": game_day()}
 
 
 @app.get("/puzzle")

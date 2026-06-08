@@ -3,7 +3,7 @@ import os
 
 import httpx
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import KeyboardButton, ReplyKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 load_dotenv()
@@ -20,12 +20,10 @@ log = logging.getLogger(__name__)
 
 
 async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [[
-        InlineKeyboardButton("Play Diddle 🎮", web_app=WebAppInfo(url=GAME_URL))
-    ]]
+    keyboard = [[KeyboardButton("Play Diddle 🎮", web_app=WebAppInfo(url=GAME_URL))]]
     await update.message.reply_text(
         "Today's puzzle is ready 🔤",
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
     )
 
 
