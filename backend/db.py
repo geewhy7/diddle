@@ -22,6 +22,23 @@ CREATE TABLE IF NOT EXISTS scores (
 );
 CREATE INDEX IF NOT EXISTS idx_scores_date ON scores(play_date);
 
+CREATE TABLE IF NOT EXISTS group_messages (
+    chat_id     INTEGER NOT NULL,
+    message_id  INTEGER NOT NULL,
+    play_date   TEXT NOT NULL,
+    PRIMARY KEY (chat_id, play_date)
+);
+
+CREATE TABLE IF NOT EXISTS group_activity (
+    chat_id      INTEGER NOT NULL,
+    user_id      INTEGER NOT NULL,
+    display_name TEXT NOT NULL,
+    play_date    TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'playing',
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (chat_id, user_id, play_date)
+);
+
 """
 
 _MIGRATE = """
@@ -336,3 +353,73 @@ async def get_user_today_scores(db_path: str, user_id: int, play_date: str) -> l
         }
         for r in rows
     ]
+
+
+async def get_group_message_row(db_path: str, chat_id: int, play_date: str) -> dict | None:
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            "SELECT message_id FROM group_messages WHERE chat_id = ? AND play_date = ?",
+            (chat_id, play_date),
+        )
+        row = await cur.fetchone()
+    return {"message_id": row[0]} if row else None
+
+
+async def save_group_message_row(db_path: str, chat_id: int, message_id: int, play_date: str) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO group_messages (chat_id, message_id, play_date) VALUES (?, ?, ?)",
+            (chat_id, message_id, play_date),
+        )
+        await db.commit()
+
+
+async def upsert_group_activity(
+    db_path: str, chat_id: int, user_id: int, display_name: str, play_date: str, status: str
+) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        if status == "done":
+            await db.execute(
+                """INSERT INTO group_activity
+                       (chat_id, user_id, display_name, play_date, status, updated_at)
+                   VALUES (?, ?, ?, ?, 'done', datetime('now'))
+                   ON CONFLICT(chat_id, user_id, play_date) DO UPDATE SET
+                       display_name = excluded.display_name,
+                       status       = 'done',
+                       updated_at   = datetime('now')""",
+                (chat_id, user_id, display_name, play_date),
+            )
+        elif status == "gaveup":
+            await db.execute(
+                """INSERT INTO group_activity
+                       (chat_id, user_id, display_name, play_date, status, updated_at)
+                   VALUES (?, ?, ?, ?, 'gaveup', datetime('now'))
+                   ON CONFLICT(chat_id, user_id, play_date) DO UPDATE SET
+                       display_name = excluded.display_name,
+                       status       = CASE WHEN status = 'playing' THEN 'gaveup' ELSE status END,
+                       updated_at   = datetime('now')""",
+                (chat_id, user_id, display_name, play_date),
+            )
+        else:  # 'playing'
+            await db.execute(
+                """INSERT INTO group_activity
+                       (chat_id, user_id, display_name, play_date, status, updated_at)
+                   VALUES (?, ?, ?, ?, 'playing', datetime('now'))
+                   ON CONFLICT(chat_id, user_id, play_date) DO UPDATE SET
+                       display_name = excluded.display_name,
+                       updated_at   = datetime('now')""",
+                (chat_id, user_id, display_name, play_date),
+            )
+        await db.commit()
+
+
+async def get_group_activity(db_path: str, chat_id: int, play_date: str) -> list[dict]:
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            """SELECT user_id, display_name, status FROM group_activity
+               WHERE chat_id = ? AND play_date = ?
+               ORDER BY updated_at ASC""",
+            (chat_id, play_date),
+        )
+        rows = await cur.fetchall()
+    return [{"user_id": r[0], "display_name": r[1], "status": r[2]} for r in rows]
