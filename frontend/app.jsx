@@ -6,7 +6,9 @@
 const tg          = window.Telegram?.WebApp ?? null;
 const INIT_DATA   = tg?.initData   ?? '';
 const COLOR_SCHEME = tg?.colorScheme ?? 'light';
-const CHAT_ID     = tg?.initDataUnsafe?.chat?.id ?? null;
+// Prefer ?chat_id= in URL (set by bot for group messages); fall back to initData
+const _urlChatId = new URLSearchParams(window.location.search).get('chat_id');
+const CHAT_ID    = _urlChatId ? parseInt(_urlChatId, 10) : (tg?.initDataUnsafe?.chat?.id ?? null);
 
 if (tg) {
   tg.ready();
@@ -214,6 +216,14 @@ function App() {
           });
         }
         setScreen('lobby');
+        // Notify the group board that this user is playing (fire-and-forget)
+        if (CHAT_ID && INIT_DATA) {
+          fetch('/playing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ init_data: INIT_DATA, chat_id: CHAT_ID }),
+          }).catch(() => {});
+        }
       })
       .catch(err => {
         if (cancelled) return;
