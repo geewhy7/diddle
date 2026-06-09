@@ -1,10 +1,15 @@
 import logging
 import os
+import sys
+from datetime import date
 
 import httpx
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
 from telegram.ext import Application, CommandHandler, ContextTypes
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
+from db import get_group_message_row, save_group_message_row
 
 load_dotenv()
 
@@ -12,6 +17,12 @@ TOKEN        = os.environ["TELEGRAM_TOKEN"]
 GAME_URL     = os.environ.get("GAME_URL",     "https://diddle.retard.zone")
 BACKEND_URL  = os.environ.get("BACKEND_URL",  "http://localhost:7113")
 BOT_APP_NAME = os.environ.get("BOT_APP_NAME", "diddle")
+DB_PATH      = os.environ.get("DB_PATH",      "diddle.db")
+
+_EPOCH = date(2026, 6, 7)
+
+def _game_day() -> int:
+    return (date.today() - _EPOCH).days + 1
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
@@ -36,11 +47,29 @@ def _escape(s: str) -> str:
 
 
 async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
-    await update.message.reply_text(
-        "Today's puzzle is ready 🔤",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
+    chat = update.effective_chat
+    chat_id = chat.id
+    is_group = chat.type in ("group", "supergroup")
+
+    if is_group:
+        play_date = date.today().isoformat()
+        existing = await get_group_message_row(DB_PATH, chat_id, play_date)
+        if existing:
+            return  # Live board already posted today — do nothing
+        day_num = _game_day()
+        mini_app_url = f"{GAME_URL}?chat_id={chat_id}"
+        keyboard = [[InlineKeyboardButton("Play Diddle 🎮", web_app=WebAppInfo(url=mini_app_url))]]
+        msg = await update.message.reply_text(
+            f"Diddle — Day {day_num} 🔤\n\nNo one has played yet — be first!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        await save_group_message_row(DB_PATH, chat_id, msg.message_id, play_date)
+    else:
+        keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
+        await update.message.reply_text(
+            "Today's puzzle is ready 🔤",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
 
 
 async def cmd_scores(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
