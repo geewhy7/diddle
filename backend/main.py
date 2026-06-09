@@ -20,7 +20,7 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(__file__))
 from game import load_words, build_graph, largest_component, pick_puzzle, validate
 from tg import verify_init_data
-from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position, get_alltime_stats
+from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position, get_alltime_stats, get_user_today_scores
 
 BOT_TOKEN     = os.environ["TELEGRAM_TOKEN"]
 DB_PATH       = os.environ.get("DB_PATH", "diddle.db")
@@ -203,6 +203,8 @@ async def score(submission: ScoreSubmission):
         "moves":            stored["moves"],
         "optimal":          optimal,
         "delta":            delta,
+        "gave_up":          stored["gave_up"],
+        "path":             stored["path"],
         "rank":             _rank(board, stored["moves"], stored["gave_up"]),
         "ordinal_position": ordinal,
         "message":          _message(delta, stored["gave_up"]),
@@ -258,6 +260,21 @@ async def stats(
         raise HTTPException(status_code=403, detail="Could not identify user")
 
     return await get_user_stats(DB_PATH, user_id, length)
+
+
+@app.get("/me")
+async def me(authorization: str = Header(default="")):
+    """Today's scores for the authenticated user — used to sync client state at startup."""
+    if not authorization.startswith("tma "):
+        raise HTTPException(status_code=403, detail="Missing tma token")
+    try:
+        user, _chat_id = _auth_user(authorization[4:])
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=403, detail="Could not identify user")
+    return await get_user_today_scores(DB_PATH, user_id, date.today().isoformat())
 
 
 # StaticFiles must be mounted last — API routes registered above take priority

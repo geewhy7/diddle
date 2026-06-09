@@ -80,7 +80,7 @@ async def save_score(
         except aiosqlite.IntegrityError:
             pass  # duplicate submission — fall through to SELECT
         cur = await db.execute(
-            """SELECT moves, optimal, gave_up, submitted_at, chat_id FROM scores
+            """SELECT moves, optimal, gave_up, submitted_at, chat_id, path FROM scores
                WHERE user_id = ? AND play_date = ? AND word_length = ?""",
             (user_id, play_date, word_length),
         )
@@ -91,6 +91,7 @@ async def save_score(
             "gave_up":      bool(row[2]),
             "submitted_at": row[3],
             "chat_id":      row[4],
+            "path":         json.loads(row[5]) if row[5] else [],
         }
 
 
@@ -313,3 +314,25 @@ async def get_alltime_stats(db_path: str, word_length: int) -> dict:
             for r in rows
         ],
     }
+
+
+async def get_user_today_scores(db_path: str, user_id: int, play_date: str) -> list[dict]:
+    """All of the user's scores for today across both word lengths."""
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            """SELECT word_length, moves, optimal, gave_up, path FROM scores
+               WHERE user_id = ? AND play_date = ?""",
+            (user_id, play_date),
+        )
+        rows = await cur.fetchall()
+    return [
+        {
+            "word_length": r[0],
+            "moves":       r[1],
+            "optimal":     r[2],
+            "gave_up":     bool(r[3]),
+            "delta":       (r[1] - r[2]) if not r[3] else None,
+            "path":        json.loads(r[4]) if r[4] else [],
+        }
+        for r in rows
+    ]

@@ -92,6 +92,18 @@ function buildShareText(played, dayNum) {
   return lines.join('\n');
 }
 
+// ---- Fetch today's server scores (startup sync) ----------------------------
+async function fetchMyScores() {
+  if (!INIT_DATA) return [];
+  try {
+    const res = await fetch('/me', { headers: { Authorization: `tma ${INIT_DATA}` } });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (_) {
+    return [];
+  }
+}
+
 // ---- Stats from server -----------------------------------------------------
 async function fetchStats(wordLength = 5) {
   if (!INIT_DATA) return null;
@@ -173,16 +185,34 @@ function App() {
   const [errorMsg,     setErrorMsg]     = React.useState(null);
   const [invalidAttempts, setInvalidAttempts] = React.useState(0);
 
-  // ---- Load both puzzles at startup ----------------------------------------
+  // ---- Load puzzles + sync today's scores from server at startup -----------
   React.useEffect(() => {
     let cancelled = false;
     Promise.all([
       window.Diddle.loadFromAPI(4),
       window.Diddle.loadFromAPI(5),
+      fetchMyScores(),
     ])
-      .then(([pz4, pz5]) => {
+      .then(([pz4, pz5, myScores]) => {
         if (cancelled) return;
         setPuzzles({ 4: pz4, 5: pz5 });
+        // Server is authoritative — overwrite local played state with DB truth
+        if (myScores.length > 0) {
+          const dayNum = pz4.num;
+          setPlayed(prev => {
+            const next = { ...prev };
+            for (const s of myScores) {
+              next[`${dayNum}-${s.word_length}`] = {
+                delta:  s.gave_up ? null : s.delta,
+                moves:  s.moves,
+                gaveUp: s.gave_up,
+                path:   s.path.map(w => w.toUpperCase()),
+              };
+            }
+            try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
+            return next;
+          });
+        }
         setScreen('lobby');
       })
       .catch(err => {
@@ -316,9 +346,18 @@ function App() {
         postScore(newPath, false, invalidAttempts, activePuzzle.length).then(async r => {
           if (!r) return;
           setScoreResult(r);
+          // Use canonical server values — covers the edge case of a duplicate submission
+          const canonPath = (r.path || []).map(w => w.toUpperCase());
           setPlayed(prev => {
             const existing = prev[key] || {};
-            const next = { ...prev, [key]: { ...existing, delta: r.delta, rank: r.rank } };
+            const next = { ...prev, [key]: {
+              ...existing,
+              delta:  r.delta,
+              moves:  r.moves,
+              gaveUp: r.gave_up,
+              rank:   r.rank,
+              ...(canonPath.length > 1 ? { path: canonPath } : {}),
+            }};
             try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
             return next;
           });
@@ -349,7 +388,24 @@ function App() {
       try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
       return next;
     });
-    postScore(snap, true, 0, len).then(r => { if (r) setScoreResult(r); });
+    postScore(snap, true, 0, len).then(r => {
+      if (!r) return;
+      setScoreResult(r);
+      // If DB says the user actually won (duplicate gaveUp), correct local state
+      const canonPath = (r.path || []).map(w => w.toUpperCase());
+      setPlayed(prev => {
+        const existing = prev[key] || {};
+        const next = { ...prev, [key]: {
+          ...existing,
+          gaveUp: r.gave_up,
+          delta:  r.gave_up ? null : r.delta,
+          moves:  r.moves,
+          ...(canonPath.length > 1 ? { path: canonPath } : {}),
+        }};
+        try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
+        return next;
+      });
+    });
     setScreen('gaveup');
   };
 
