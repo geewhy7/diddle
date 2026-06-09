@@ -58,10 +58,38 @@ function loadPlayed() {
 }
 
 // ---- Share text ------------------------------------------------------------
-function emojiGrid(path, target) {
-  return path
-    .map(w => w.split('').map((ch, i) => ch === target[i] ? '🟩' : '⬜').join(''))
-    .join('\n');
+function deltaEmoji(delta) {
+  if (delta === 0) return '🎯';
+  if (delta <= 2) return '⭐';
+  if (delta <= 4) return '👍';
+  return '😅';
+}
+
+function buildShareText(played, dayNum) {
+  const completions = [4, 5]
+    .map(len => ({ len, entry: played[`${dayNum}-${len}`] }))
+    .filter(x => x.entry && !x.entry.gaveUp);
+
+  if (completions.length === 0) return '';
+
+  if (completions.length === 1) {
+    const { len, entry } = completions[0];
+    const emoji = deltaEmoji(entry.delta);
+    const lines = [`Diddle #${dayNum} (${len}L) ${emoji}`];
+    lines.push(entry.delta === 0
+      ? `${entry.moves} moves — PERFECT`
+      : `${entry.moves} moves (+${entry.delta})`);
+    return lines.join('\n');
+  }
+
+  // Both completed
+  const lines = [`Diddle #${dayNum}`];
+  for (const { len, entry } of completions) {
+    const emoji = deltaEmoji(entry.delta);
+    const deltaStr = entry.delta > 0 ? ` +${entry.delta}` : '';
+    lines.push(`${len}L · ${entry.moves} moves${deltaStr} ${emoji}`);
+  }
+  return lines.join('\n');
 }
 
 // ---- Stats from server -----------------------------------------------------
@@ -181,18 +209,16 @@ function App() {
   // ---- Share handler -------------------------------------------------------
   const shareRef = React.useRef(null);
   React.useEffect(() => {
-    if (!activePuzzle) return;
+    const dayNum = puzzles[4]?.num || puzzles[5]?.num;
+    if (!dayNum) return;
     shareRef.current = () => {
-      const moves   = path.length - 1;
-      const rank    = scoreResult?.rank;
-      const rankStr = rank ? ` · #${rank} today` : '';
-      const txt     = `Diddle No.${activePuzzle.num} (${activePuzzle.length}L) — ${moves}/${activePuzzle.par} moves${rankStr}\n\n`
-                    + emojiGrid(path, activePuzzle.target);
+      const txt = buildShareText(played, dayNum);
+      if (!txt) return;
       try { navigator.clipboard?.writeText(txt); } catch (_) {}
       flashToast('Copied — paste in chat!');
       tg?.HapticFeedback?.notificationOccurred('success');
     };
-  }, [path, scoreResult, activePuzzle]);
+  }, [played, puzzles]);
 
   // ---- Telegram MainButton -------------------------------------------------
   React.useEffect(() => {
@@ -273,7 +299,7 @@ function App() {
           // Mark this puzzle as played in localStorage + state
           const key = `${activePuzzle.num}-${activePuzzle.length}`;
           setPlayed(prev => {
-            const next = { ...prev, [key]: { delta: r.delta, moves: r.moves, gaveUp: false } };
+            const next = { ...prev, [key]: { delta: r.delta, moves: r.moves, gaveUp: false, rank: r.rank } };
             try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
             return next;
           });

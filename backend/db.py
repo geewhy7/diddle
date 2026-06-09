@@ -232,29 +232,51 @@ async def get_leaderboard(
 ) -> list[dict]:
     """
     All scores for the given day.
-    word_length=None returns all puzzles; pass 4 or 5 to filter to one.
-    Completions sorted by moves; gave_up at the bottom.
+    word_length=None: returns all scores (no avg annotation, for bot use).
+    word_length=4|5: filtered + each row includes player's all-time avg delta
+                     (completions only, None when fewer than 3 days played).
     """
     async with aiosqlite.connect(db_path) as db:
         if word_length is None:
             cur = await db.execute(
-                """SELECT display_name, moves, optimal, gave_up, word_length FROM scores
+                """SELECT display_name, moves, optimal, gave_up, word_length, NULL, NULL
+                   FROM scores
                    WHERE play_date = ?
                    ORDER BY gave_up ASC, moves ASC""",
                 (play_date,),
             )
         else:
             cur = await db.execute(
-                """SELECT display_name, moves, optimal, gave_up, word_length FROM scores
-                   WHERE play_date = ? AND word_length = ?
-                   ORDER BY gave_up ASC, moves ASC""",
-                (play_date, word_length),
+                """SELECT s.display_name, s.moves, s.optimal, s.gave_up, s.word_length,
+                          (SELECT AVG(s2.moves - s2.optimal)
+                           FROM scores s2
+                           WHERE s2.user_id = s.user_id
+                             AND s2.word_length = ?
+                             AND s2.gave_up = 0),
+                          (SELECT COUNT(*)
+                           FROM scores s2
+                           WHERE s2.user_id = s.user_id
+                             AND s2.word_length = ?
+                             AND s2.gave_up = 0)
+                   FROM scores s
+                   WHERE s.play_date = ? AND s.word_length = ?
+                   ORDER BY s.gave_up ASC, s.moves ASC""",
+                (word_length, word_length, play_date, word_length),
             )
         rows = await cur.fetchall()
-        return [
-            {"name": r[0], "moves": r[1], "optimal": r[2], "gave_up": bool(r[3]), "word_length": r[4]}
-            for r in rows
-        ]
+        result = []
+        for r in rows:
+            raw_avg, days = r[5], r[6]
+            avg = round(raw_avg, 1) if (raw_avg is not None and days is not None and days >= 3) else None
+            result.append({
+                "name":        r[0],
+                "moves":       r[1],
+                "optimal":     r[2],
+                "gave_up":     bool(r[3]),
+                "word_length": r[4],
+                "avg":         avg,
+            })
+        return result
 
 
 async def get_alltime_stats(db_path: str, word_length: int) -> dict:
