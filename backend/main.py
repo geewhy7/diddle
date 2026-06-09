@@ -212,6 +212,30 @@ async def words(length: int = Query(default=5)):
 
 # ── Authenticated endpoints ────────────────────────────────────────────────────
 
+class PlayingRequest(BaseModel):
+    init_data: str
+    chat_id: int | None = None
+
+
+@app.post("/playing")
+async def mark_playing(req: PlayingRequest):
+    try:
+        user, _ = _auth_user(req.init_data)
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=403, detail="Could not identify user")
+    if req.chat_id:
+        display_name = user.get("first_name", "Player")
+        if user.get("last_name"):
+            display_name += f" {user['last_name']}"
+        play_date = date.today().isoformat()
+        await upsert_group_activity(DB_PATH, req.chat_id, user_id, display_name, play_date, "playing")
+        await edit_group_message(req.chat_id, play_date)
+    return {"ok": True}
+
+
 class ScoreSubmission(BaseModel):
     init_data: str
     path: list[str]
