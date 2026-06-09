@@ -61,8 +61,8 @@ function loadPlayed() {
 function deltaEmoji(delta) {
   if (delta === 0) return '🎯';
   if (delta <= 2) return '⭐';
-  if (delta <= 4) return '👍';
-  return '😅';
+  if (delta <= 4) return '😂';
+  return '🤡';
 }
 
 function buildShareText(played, dayNum) {
