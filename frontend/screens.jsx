@@ -196,7 +196,7 @@ function FinishedScreen({ puzzle, path, stats, scoreResult, onShare, onClose }) 
 
       <div className="mainbtn-wrap">
         <button className="mainbtn green" onClick={onShare}>Share result</button>
-        <button className="linkbtn" onClick={onClose}>Back to chat</button>
+        <button className="linkbtn" onClick={onClose}>← Back to puzzles</button>
       </div>
     </div>
   );
@@ -219,10 +219,132 @@ function GaveUpScreen({ puzzle, path, onClose }) {
       </div>
 
       <div className="mainbtn-wrap">
-        <button className="linkbtn" onClick={onClose}>Back to chat</button>
+        <button className="linkbtn" onClick={onClose}>← Back to puzzles</button>
       </div>
     </div>
   );
 }
 
-Object.assign(window, { LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen });
+// ---- PuzzleCard ------------------------------------------------------------
+
+function PuzzleCard({ puzzle, playedResult, onPlay }) {
+  const cardRef = React.useRef(null);
+  const played  = !!playedResult;
+  const perfect = played && !playedResult.gaveUp && playedResult.delta === 0;
+
+  function badge() {
+    if (!played) return null;
+    if (playedResult.gaveUp)      return <div className="card-result">gave up</div>;
+    if (playedResult.delta === 0) return <div className="card-result perfect">Perfect!</div>;
+    return <div className="card-result">+{playedResult.delta} moves</div>;
+  }
+
+  return (
+    <div
+      ref={cardRef}
+      className={"puzzle-card" + (played ? " played" : "") + (perfect ? " perfect" : "")}
+      onClick={() => onPlay(puzzle, cardRef.current)}
+    >
+      <div className="card-label">{puzzle.length} letters</div>
+      <div className="card-words">
+        <span className="card-word start">{puzzle.start}</span>
+        <span className="card-arrow">↓</span>
+        <span className="card-word end">{puzzle.target}</span>
+      </div>
+      <div className="card-par">par {puzzle.par}</div>
+      {played ? badge() : <div className="card-play">Play →</div>}
+    </div>
+  );
+}
+
+// ---- LobbyScreen -----------------------------------------------------------
+
+function LobbyScreen({ puzzles, played, onPlay, onLeaderboard }) {
+  const dayNum = puzzles[4]?.num || puzzles[5]?.num || '';
+
+  return (
+    <div className="screen lobby">
+      <div className="lobby-day">Day {dayNum} — choose your puzzle</div>
+      <div className="lobby-cards">
+        {[4, 5].map(len => puzzles[len] ? (
+          <PuzzleCard
+            key={len}
+            puzzle={puzzles[len]}
+            playedResult={played[`${puzzles[len].num}-${len}`] || null}
+            onPlay={onPlay}
+          />
+        ) : null)}
+      </div>
+      <button className="lobby-lb-btn" onClick={onLeaderboard}>
+        🏆 Today's Leaderboard
+      </button>
+    </div>
+  );
+}
+
+// ---- LeaderboardScreen -----------------------------------------------------
+
+function LeaderboardScreen({ initData, onClose }) {
+  const [board, setBoard] = React.useState(null);
+  const [err,   setErr]   = React.useState(null);
+
+  React.useEffect(() => {
+    const headers = initData
+      ? { Authorization: `tma ${initData}` }
+      : {};
+    fetch('/leaderboard', { headers })
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(setBoard)
+      .catch(() => setErr("Couldn't load leaderboard."));
+  }, []);
+
+  // Group by word_length, preserving server sort order within each group
+  const groups = {};
+  (board || []).forEach(e => { (groups[e.word_length] ||= []).push(e); });
+
+  return (
+    <div className="screen">
+      <div className="sheet">
+        <div className="eyebrow">Today's Leaderboard</div>
+        {err && <p style={{ color: 'var(--tg-theme-hint-color)', fontFamily: 'var(--mono)', fontSize: 13 }}>{err}</p>}
+        {!board && !err && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
+            <div className="spinner" />
+          </div>
+        )}
+        {board && [4, 5].map(len => {
+          const rows = groups[len];
+          if (!rows) return null;
+          let rank = 0;
+          return (
+            <div key={len} className="lb-section">
+              <h4 className="lb-label">{len}-letter puzzle</h4>
+              {rows.map((e, i) => {
+                const delta = e.moves - e.optimal;
+                const gave  = e.gave_up;
+                if (!gave) rank++;
+                return (
+                  <div key={i} className="lb-row">
+                    <span className="lb-rank">{gave ? '—' : rank}</span>
+                    <span className="lb-name">{e.name}</span>
+                    <span className={"lb-badge" + (gave ? " giveup" : "")}>
+                      {gave ? 'gave up' : delta === 0 ? '✨ Perfect' : `+${delta}`}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mainbtn-wrap">
+        <button className="linkbtn" onClick={onClose}>← Back to puzzles</button>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window, {
+  LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen,
+  LobbyScreen, PuzzleCard, LeaderboardScreen,
+});

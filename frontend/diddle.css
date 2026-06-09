@@ -394,3 +394,114 @@ body {
 
 .countdown { margin-top: 26px; text-align: center; font-family: var(--mono); font-size: 13px; color: var(--tg-theme-hint-color); }
 .countdown b { color: var(--tg-theme-text-color); font-weight: 700; }
+
+/* ---------- lobby ---------- */
+.screen.lobby {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 22px; padding: 28px 16px 36px;
+}
+.lobby-day {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--tg-theme-hint-color); font-weight: 700;
+  text-align: center;
+}
+.lobby-cards {
+  display: flex; flex-direction: row; gap: 12px; width: 100%;
+}
+
+/* ---------- puzzle card ---------- */
+.puzzle-card {
+  flex: 1 1 0; min-width: 0;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 18px;
+  border: 1.5px solid var(--hairline);
+  padding: 18px 12px 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  cursor: pointer; user-select: none;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+  will-change: transform;
+}
+.puzzle-card:active { transform: scale(0.95); opacity: 0.82; }
+.puzzle-card.played  { border-color: color-mix(in srgb, var(--acc-green) 40%, transparent); }
+.puzzle-card.perfect { border-color: var(--acc-green); }
+
+.card-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1.3px;
+  text-transform: uppercase; color: var(--tg-theme-hint-color); font-weight: 700;
+}
+.card-words {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.card-word {
+  font-family: var(--mono); font-weight: 700; font-size: 19px;
+  letter-spacing: 3px; text-transform: uppercase;
+}
+.card-word.start { color: var(--tg-theme-text-color); }
+.card-word.end   { color: var(--acc-green); }
+.card-arrow {
+  font-size: 12px; color: var(--tg-theme-hint-color); line-height: 1.2;
+}
+.card-par {
+  font-family: var(--mono); font-size: 11px; color: var(--tg-theme-hint-color);
+}
+.card-play {
+  width: 100%; text-align: center;
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  color: var(--tg-theme-button-text-color);
+  background: var(--tg-theme-button-color);
+  padding: 8px 0; border-radius: 10px;
+}
+.card-result {
+  width: 100%; text-align: center;
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--tg-theme-hint-color);
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 12%, transparent);
+  padding: 8px 0; border-radius: 10px;
+}
+.card-result.perfect {
+  color: var(--acc-green);
+  background: var(--acc-green-soft);
+}
+
+.lobby-lb-btn {
+  width: 100%; border: 1.5px solid var(--hairline);
+  border-radius: 14px; padding: 13px 24px;
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  color: var(--tg-theme-text-color);
+  background: var(--tg-theme-secondary-bg-color);
+  cursor: pointer;
+}
+
+/* ---------- zoom overlay (card → fullscreen transition) ---------- */
+.zoom-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--tg-theme-bg-color);
+  transform-origin: var(--ox, 50%) var(--oy, 50%);
+  animation: cardZoomIn 340ms cubic-bezier(.2,.8,.2,1) forwards;
+  pointer-events: none;
+}
+@keyframes cardZoomIn {
+  from { transform: scale(0.06); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* ---------- leaderboard screen ---------- */
+.lb-section { margin-top: 20px; }
+.lb-section:first-child { margin-top: 10px; }
+.lb-label {
+  font-family: var(--mono); font-size: 11px; letter-spacing: 1.3px;
+  text-transform: uppercase; color: var(--tg-theme-hint-color);
+  margin: 0 0 8px; font-weight: 700; border: none;
+}
+.lb-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--hairline);
+  font-family: var(--mono); font-size: 14px;
+}
+.lb-row:last-child { border-bottom: none; }
+.lb-rank { width: 22px; flex: 0 0 22px; color: var(--tg-theme-hint-color); font-size: 12px; }
+.lb-name { flex: 1 1 auto; color: var(--tg-theme-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lb-badge { color: var(--acc-green); font-weight: 700; font-size: 13px; white-space: nowrap; }
+.lb-badge.giveup { color: var(--tg-theme-hint-color); font-weight: 400; }

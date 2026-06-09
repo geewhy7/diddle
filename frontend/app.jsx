@@ -14,13 +14,14 @@ if (tg) {
   tg.disableVerticalSwipes();
 }
 
-// ---- Globals set by components.jsx and screens.jsx -------------------------
+// ---- Globals set by components.jsx, screens.jsx ----------------------------
 const {
   LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen,
+  LobbyScreen, LeaderboardScreen,
   Wordmark, Mark,
 } = window;
 
-// ---- Stats (localStorage) --------------------------------------------------
+// ---- Win stats (localStorage) — per-puzzle-length counters -----------------
 const STATS_KEY  = 'diddle.stats.v1';
 const ZERO_STATS = { wins: 0, totalExtra: 0, currentStreak: 0, bestStreak: 0,
                      dist: [0,0,0,0,0,0,0], counted: {} };
@@ -31,11 +32,12 @@ function loadStats() {
   } catch (_) {}
   return JSON.parse(JSON.stringify(ZERO_STATS));
 }
-function recordWin(stats, num, extra) {
-  if (stats.counted?.[num]) return stats;
+function recordWin(stats, num, length, extra) {
+  const key = `${num}-${length}`;
+  if (stats.counted?.[key]) return stats;
   const s         = JSON.parse(JSON.stringify(stats));
   s.counted       = s.counted || {};
-  s.counted[num]  = true;
+  s.counted[key]  = true;
   s.wins         += 1;
   s.totalExtra   += Math.max(0, extra);
   s.dist[Math.min(Math.max(0, extra), 6)] += 1;
@@ -45,6 +47,16 @@ function recordWin(stats, num, extra) {
   return s;
 }
 
+// ---- Played results (localStorage) — lobby card state ----------------------
+const PLAYED_KEY = 'diddle.played.v1';
+function loadPlayed() {
+  try {
+    const s = JSON.parse(localStorage.getItem(PLAYED_KEY));
+    if (s && typeof s === 'object') return s;
+  } catch (_) {}
+  return {};
+}
+
 // ---- Share text ------------------------------------------------------------
 function emojiGrid(path, target) {
   return path
@@ -52,11 +64,11 @@ function emojiGrid(path, target) {
     .join('\n');
 }
 
-// ---- Stats -----------------------------------------------------------------
-async function fetchStats() {
+// ---- Stats from server -----------------------------------------------------
+async function fetchStats(wordLength = 5) {
   if (!INIT_DATA) return null;
   try {
-    const res = await fetch('/stats', {
+    const res = await fetch(`/stats?length=${wordLength}`, {
       headers: { Authorization: `tma ${INIT_DATA}` },
     });
     if (!res.ok) return null;
@@ -66,10 +78,7 @@ async function fetchStats() {
   }
 }
 
-// Transform the server stats shape to the shape FinishedScreen expects.
-// Server keys: total_won, total_extra, current_streak, longest_streak,
-//              distribution (dict str→int, keys = extra moves 0-6)
-// Local keys:  wins, totalExtra, currentStreak, bestStreak, dist (array[7])
+// Transform server stats shape → FinishedScreen shape.
 function apiStatsToLocal(s) {
   const dist = Array(7).fill(0);
   for (const [k, v] of Object.entries(s.distribution || {})) {
@@ -87,8 +96,8 @@ function apiStatsToLocal(s) {
 }
 
 // ---- Score submission ------------------------------------------------------
-async function postScore(path, gaveUp, invalidAttempts) {
-  if (!INIT_DATA) return null;   // not running inside Telegram
+async function postScore(path, gaveUp, invalidAttempts, wordLength = 5) {
+  if (!INIT_DATA) return null;
   try {
     const res = await fetch('/score', {
       method:  'POST',
@@ -97,12 +106,13 @@ async function postScore(path, gaveUp, invalidAttempts) {
         init_data:        INIT_DATA,
         path:             path.map(w => w.toLowerCase()),
         gave_up:          gaveUp,
+        word_length:      wordLength,
         invalid_attempts: invalidAttempts ?? 0,
         chat_id:          CHAT_ID,
       }),
     });
     if (!res.ok) return null;
-    return await res.json();     // { moves, optimal, delta, rank, ordinal_position, message }
+    return await res.json();
   } catch (_) {
     return null;
   }
@@ -111,7 +121,17 @@ async function postScore(path, gaveUp, invalidAttempts) {
 // ---- App -------------------------------------------------------------------
 function App() {
   const [screen,       setScreen]       = React.useState('loading');
-  const [puzzle,       setPuzzle]       = React.useState(null);
+  // puzzles loaded from API: { 4: puzzleObj, 5: puzzleObj }
+  const [puzzles,      setPuzzles]      = React.useState({});
+  // the puzzle currently being played
+  const [activePuzzle, setActivePuzzle] = React.useState(null);
+  // played results keyed by "${day}-${length}"
+  const [played,       setPlayed]       = React.useState(loadPlayed);
+  // zoom animation origin as CSS percentage strings
+  const [zoomOrigin,   setZoomOrigin]   = React.useState({ ox: '50%', oy: '50%' });
+  // whether to show leaderboard overlay on the lobby
+  const [showLb,       setShowLb]       = React.useState(false);
+
   const [path,         setPath]         = React.useState([]);
   const [input,        setInput]        = React.useState('');
   const [hint,         setHint]         = React.useState(null);
@@ -120,28 +140,37 @@ function App() {
   const [promoteIndex, setPromoteIndex] = React.useState(-1);
   const [bounce,       setBounce]       = React.useState(false);
   const [toast,        setToast]        = React.useState(null);
-  const [stats,           setStats]           = React.useState(loadStats);
-  const [scoreResult,     setScoreResult]     = React.useState(null);
-  const [errorMsg,        setErrorMsg]        = React.useState(null);
+  const [stats,        setStats]        = React.useState(loadStats);
+  const [scoreResult,  setScoreResult]  = React.useState(null);
+  const [errorMsg,     setErrorMsg]     = React.useState(null);
   const [invalidAttempts, setInvalidAttempts] = React.useState(0);
 
-  // ---- Load puzzle from API on mount ---------------------------------------
+  // ---- Load both puzzles at startup ----------------------------------------
   React.useEffect(() => {
     let cancelled = false;
-    window.Diddle.loadFromAPI()
-      .then(pz => {
+    Promise.all([
+      window.Diddle.loadFromAPI(4),
+      window.Diddle.loadFromAPI(5),
+    ])
+      .then(([pz4, pz5]) => {
         if (cancelled) return;
-        setPuzzle(pz);
-        setPath([pz.start]);
-        setScreen('playing');
+        setPuzzles({ 4: pz4, 5: pz5 });
+        setScreen('lobby');
       })
       .catch(err => {
         if (cancelled) return;
-        setErrorMsg(err.message || 'Failed to load puzzle');
+        setErrorMsg(err.message || 'Failed to load puzzles');
         setScreen('error');
       });
     return () => { cancelled = true; };
   }, []);
+
+  // ---- Zoom animation: after 340 ms switch to playing ----------------------
+  React.useEffect(() => {
+    if (screen !== 'zooming') return;
+    const id = setTimeout(() => setScreen('playing'), 340);
+    return () => clearTimeout(id);
+  }, [screen]);
 
   // ---- Toast ---------------------------------------------------------------
   const flashToast = (msg) => {
@@ -149,25 +178,23 @@ function App() {
     setTimeout(() => setToast(null), 1800);
   };
 
-  // ---- Share handler — kept in a ref so the MainButton always calls the
-  //      latest closure even though it's registered once --------------------
+  // ---- Share handler -------------------------------------------------------
   const shareRef = React.useRef(null);
   React.useEffect(() => {
-    if (!puzzle) return;
+    if (!activePuzzle) return;
     shareRef.current = () => {
       const moves   = path.length - 1;
       const rank    = scoreResult?.rank;
       const rankStr = rank ? ` · #${rank} today` : '';
-      const txt     = `Diddle No.${puzzle.num} — ${moves}/${puzzle.par} moves${rankStr}\n\n`
-                    + emojiGrid(path, puzzle.target);
+      const txt     = `Diddle No.${activePuzzle.num} (${activePuzzle.length}L) — ${moves}/${activePuzzle.par} moves${rankStr}\n\n`
+                    + emojiGrid(path, activePuzzle.target);
       try { navigator.clipboard?.writeText(txt); } catch (_) {}
       flashToast('Copied — paste in chat!');
       tg?.HapticFeedback?.notificationOccurred('success');
     };
-  }, [path, scoreResult, puzzle]);
+  }, [path, scoreResult, activePuzzle]);
 
   // ---- Telegram MainButton -------------------------------------------------
-  // Register the handler once; visibility is toggled by screen changes.
   React.useEffect(() => {
     if (!tg?.MainButton) return;
     const handler = () => shareRef.current?.();
@@ -185,11 +212,35 @@ function App() {
     }
   }, [screen]);
 
+  // ---- Handle card tap (start a puzzle) ------------------------------------
+  const handlePlay = (puzzle, cardEl) => {
+    let ox = '50%', oy = '50%';
+    if (cardEl) {
+      const r = cardEl.getBoundingClientRect();
+      ox = `${((r.left + r.width  / 2) / window.innerWidth  * 100).toFixed(1)}%`;
+      oy = `${((r.top  + r.height / 2) / window.innerHeight * 100).toFixed(1)}%`;
+    }
+    setZoomOrigin({ ox, oy });
+    setActivePuzzle(puzzle);
+    setPath([puzzle.start]);
+    setInput('');
+    setHint(null);
+    setScoreResult(null);
+    setInvalidAttempts(0);
+    setScreen('zooming');
+  };
+
+  // ---- Return to lobby after finishing/giving up ---------------------------
+  const handleBackToLobby = () => {
+    setActivePuzzle(null);
+    setScreen('lobby');
+  };
+
   // ---- Submit --------------------------------------------------------------
   const submit = () => {
-    if (!puzzle || committing || bounce) return;
+    if (!activePuzzle || committing || bounce) return;
     const last = path[path.length - 1];
-    const res  = puzzle.validate(last, input);
+    const res  = activePuzzle.validate(last, input);
     if (!res.ok) {
       setHint({ text: res.reason, err: true });
       setShake(true);
@@ -199,12 +250,10 @@ function App() {
     }
 
     const word       = res.word;
-    const win        = word === puzzle.target;
-    const finalMoves = path.length;   // moves = finalMoves (after adding word)
+    const win        = word === activePuzzle.target;
+    const finalMoves = path.length;
     setHint(null);
 
-    // Capture path snapshot for the timeout closure (path won't change while
-    // committing=true, but snapshot makes the intent explicit).
     const pathSnap = path;
 
     const promote = () => {
@@ -216,12 +265,19 @@ function App() {
       setTimeout(() => setPromoteIndex(-1), 660);
 
       if (win) {
-        setStats(prev => recordWin(prev, puzzle.num, Math.max(0, finalMoves - puzzle.par)));
-        // Fire alongside the bounce animation; update stats from server when ready
-        postScore(newPath, false, invalidAttempts).then(async r => {
+        setStats(prev => recordWin(prev, activePuzzle.num, activePuzzle.length,
+                                   Math.max(0, finalMoves - activePuzzle.par)));
+        postScore(newPath, false, invalidAttempts, activePuzzle.length).then(async r => {
           if (!r) return;
           setScoreResult(r);
-          const apiStats = await fetchStats();
+          // Mark this puzzle as played in localStorage + state
+          const key = `${activePuzzle.num}-${activePuzzle.length}`;
+          setPlayed(prev => {
+            const next = { ...prev, [key]: { delta: r.delta, moves: r.moves, gaveUp: false } };
+            try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
+            return next;
+          });
+          const apiStats = await fetchStats(activePuzzle.length);
           if (apiStats) setStats(apiStatsToLocal(apiStats));
         });
         setTimeout(() => {
@@ -233,42 +289,47 @@ function App() {
 
     setCommitting({ word, win });
     setInput('');
-    setTimeout(promote, puzzle.length * 140 + 720);
+    setTimeout(promote, activePuzzle.length * 140 + 720);
   };
 
   // ---- Give up -------------------------------------------------------------
   const handleGiveUp = () => {
     const snap = [...path];
-    // Submit in background; show screen immediately
-    postScore(snap, true).then(r => { if (r) setScoreResult(r); });
+    const len  = activePuzzle.length;
+    const num  = activePuzzle.num;
+    postScore(snap, true, 0, len).then(r => {
+      if (!r) return;
+      setScoreResult(r);
+      const key = `${num}-${len}`;
+      setPlayed(prev => {
+        const next = { ...prev, [key]: { delta: null, moves: snap.length - 1, gaveUp: true } };
+        try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
+        return next;
+      });
+    });
     setScreen('gaveup');
   };
 
   // ---- Share ---------------------------------------------------------------
   const handleShare = () => shareRef.current?.();
-
-  // ---- Close Mini App ------------------------------------------------------
-  const handleClose = () => tg?.close();
-
-  // ---- Retry on error ------------------------------------------------------
   const handleRetry = () => window.location.reload();
 
   // ---- Render --------------------------------------------------------------
   let body;
-  if (screen === 'loading' || !puzzle) {
+  if (screen === 'loading') {
     body = <LoadingScreen />;
   } else if (screen === 'error') {
     body = <ErrorScreen message={errorMsg} onRetry={handleRetry} />;
   } else if (screen === 'finished') {
-    body = <FinishedScreen puzzle={puzzle} path={path} stats={stats}
+    body = <FinishedScreen puzzle={activePuzzle} path={path} stats={stats}
                            scoreResult={scoreResult}
-                           onShare={handleShare} onClose={handleClose} />;
+                           onShare={handleShare} onClose={handleBackToLobby} />;
   } else if (screen === 'gaveup') {
-    body = <GaveUpScreen puzzle={puzzle} path={path} onClose={handleClose} />;
-  } else {
+    body = <GaveUpScreen puzzle={activePuzzle} path={path} onClose={handleBackToLobby} />;
+  } else if (screen === 'playing') {
     body = (
       <PlayingScreen
-        puzzle={puzzle}
+        puzzle={activePuzzle}
         path={path}
         input={input}
         setInput={setInput}
@@ -281,7 +342,28 @@ function App() {
         onGiveUp={handleGiveUp}
       />
     );
+  } else {
+    // 'lobby' or 'zooming' — always render the lobby beneath the zoom overlay
+    body = (
+      <>
+        {showLb
+          ? <LeaderboardScreen initData={INIT_DATA} onClose={() => setShowLb(false)} />
+          : <LobbyScreen puzzles={puzzles} played={played}
+                         onPlay={handlePlay}
+                         onLeaderboard={() => setShowLb(true)} />
+        }
+        {screen === 'zooming' && (
+          <div className="zoom-overlay"
+               style={{ '--ox': zoomOrigin.ox, '--oy': zoomOrigin.oy }} />
+        )}
+      </>
+    );
   }
+
+  const dayNum = puzzles[4]?.num || puzzles[5]?.num || '';
+  const subLabel = activePuzzle && screen !== 'lobby'
+    ? `day ${activePuzzle.num} · ${activePuzzle.length} letters`
+    : dayNum ? `day ${dayNum}` : 'loading…';
 
   return (
     <div
@@ -294,9 +376,7 @@ function App() {
       <div className="tg-header">
         <Mark />
         <Wordmark />
-        <span className="sub">
-          {puzzle ? `day ${puzzle.num} · 5 letters` : 'loading…'}
-        </span>
+        <span className="sub">{subLabel}</span>
       </div>
       {body}
       {toast && <div className="toast">{toast}</div>}

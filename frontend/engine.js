@@ -75,10 +75,10 @@
 
   // ---- API loading ---------------------------------------------------------
 
-  async function loadFromAPI() {
+  async function loadFromAPI(wordLength = 5) {
     const [pzRes, wRes] = await Promise.all([
-      fetch('/puzzle'),
-      fetch('/words'),
+      fetch(`/puzzle?length=${wordLength}`),
+      fetch(`/words?length=${wordLength}`),
     ]);
     if (!pzRes.ok) throw new Error(`Puzzle fetch failed (${pzRes.status})`);
     if (!wRes.ok)  throw new Error(`Words fetch failed (${wRes.status})`);
