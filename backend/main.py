@@ -11,7 +11,7 @@ def game_day() -> int:
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -37,20 +37,21 @@ def _auth_user(init_data: str) -> tuple[dict, int | None]:
         return _DEV_USER, None
     return verify_init_data(init_data, BOT_TOKEN)
 
-_words: set[str] = set()
-_graph: dict = {}
-_puzzle: dict | None = None
-_puzzle_day: int = -1
+_words: dict[int, set[str]] = {}   # keyed by word length
+_graph: dict[int, dict]    = {}
+_puzzles: dict[int, dict]  = {}
+_puzzle_days: dict[int, int] = {}
+
+WORD_LENGTHS = (4, 5)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _words, _graph
-    # load_words fetches word lists over HTTP — runs once at startup only
-    raw = load_words(5)
-    graph = build_graph(raw)
-    _words = largest_component(graph)
-    _graph = graph
+    for length in WORD_LENGTHS:
+        raw   = load_words(length)
+        graph = build_graph(raw)
+        _words[length] = largest_component(graph)
+        _graph[length] = graph
     await init_db(DB_PATH)
     yield
 
@@ -67,20 +68,19 @@ app.add_middleware(
 )
 
 
-def today_puzzle() -> dict:
-    global _puzzle, _puzzle_day
+def today_puzzle(length: int = 5) -> dict:
     today = date.today().toordinal()
-    if _puzzle_day != today:
-        start, end, path = pick_puzzle(_words, _graph)
-        _puzzle = {
-            "start": start,
-            "end": end,
+    if _puzzle_days.get(length) != today:
+        start, end, path = pick_puzzle(_words[length], _graph[length])
+        _puzzles[length] = {
+            "start":         start,
+            "end":           end,
             "optimal_steps": len(path) - 1,
-            "day": game_day(),
-            "word_length": 5,
+            "day":           game_day(),
+            "word_length":   length,
         }
-        _puzzle_day = today
-    return _puzzle
+        _puzzle_days[length] = today
+    return _puzzles[length]
 
 
 def _rank(leaderboard: list[dict], moves: int, gave_up: bool) -> int:
@@ -108,13 +108,17 @@ async def health():
 
 
 @app.get("/puzzle")
-async def puzzle():
-    return today_puzzle()
+async def puzzle(length: int = Query(default=5)):
+    if length not in WORD_LENGTHS:
+        raise HTTPException(status_code=400, detail=f"length must be one of {WORD_LENGTHS}")
+    return today_puzzle(length)
 
 
 @app.get("/words")
-async def words():
-    return PlainTextResponse("\n".join(sorted(_words)))
+async def words(length: int = Query(default=5)):
+    if length not in _words:
+        raise HTTPException(status_code=400, detail=f"length must be one of {WORD_LENGTHS}")
+    return PlainTextResponse("\n".join(sorted(_words[length])))
 
 
 # ── Authenticated endpoints ────────────────────────────────────────────────────
@@ -123,6 +127,7 @@ class ScoreSubmission(BaseModel):
     init_data: str
     path: list[str]
     gave_up: bool
+    word_length: int = 5
     invalid_attempts: int = 0
     chat_id: int | None = None
 
@@ -138,7 +143,10 @@ async def score(submission: ScoreSubmission):
     if not user_id:
         raise HTTPException(status_code=403, detail="Could not identify user")
 
-    puz = today_puzzle()
+    word_length = submission.word_length
+    if word_length not in WORD_LENGTHS:
+        raise HTTPException(status_code=400, detail=f"word_length must be one of {WORD_LENGTHS}")
+    puz = today_puzzle(word_length)
     start, end, optimal = puz["start"], puz["end"], puz["optimal_steps"]
 
     # Normalise to lowercase — never trust client casing
@@ -152,7 +160,7 @@ async def score(submission: ScoreSubmission):
     if not submission.gave_up and path[-1] != end:
         raise HTTPException(status_code=422, detail=f"Path must end with '{end}'")
     for i in range(len(path) - 1):
-        err = validate(path[i], path[i + 1], _words)
+        err = validate(path[i], path[i + 1], _words[word_length])
         if err:
             raise HTTPException(
                 status_code=422,
@@ -184,10 +192,10 @@ async def score(submission: ScoreSubmission):
         chat_id=chat_id,
     )
 
-    board = await get_leaderboard(DB_PATH, play_date, puz["word_length"])
+    board = await get_leaderboard(DB_PATH, play_date, word_length)
     delta = stored["moves"] - optimal
     ordinal = await get_ordinal_position(
-        DB_PATH, play_date, puz["word_length"],
+        DB_PATH, play_date, word_length,
         stored["submitted_at"], None,
     )
 
@@ -214,22 +222,30 @@ def _check_leaderboard_auth(authorization: str) -> None:
 
 
 @app.get("/leaderboard")
-async def leaderboard(authorization: str = Header(default="")):
+async def leaderboard(
+    authorization: str = Header(default=""),
+    length: int | None = Query(default=None),
+):
     _check_leaderboard_auth(authorization)
-    puz = today_puzzle()
-    return await get_leaderboard(DB_PATH, date.today().isoformat(), puz["word_length"])
+    return await get_leaderboard(DB_PATH, date.today().isoformat(), length)
 
 
 @app.get("/stats/alltime")
-async def stats_alltime(authorization: str = Header(default="")):
+async def stats_alltime(
+    authorization: str = Header(default=""),
+    length: int = Query(default=5),
+):
     _check_leaderboard_auth(authorization)
-    puz = today_puzzle()
-    result = await get_alltime_stats(DB_PATH, puz["word_length"])
+    puz = today_puzzle(length)
+    result = await get_alltime_stats(DB_PATH, length)
     return {"puzzle_day": puz["day"], **result}
 
 
 @app.get("/stats")
-async def stats(authorization: str = Header(default="")):
+async def stats(
+    authorization: str = Header(default=""),
+    length: int = Query(default=5),
+):
     if not authorization.startswith("tma "):
         raise HTTPException(status_code=403, detail="Missing tma token")
     try:
@@ -241,8 +257,7 @@ async def stats(authorization: str = Header(default="")):
     if not user_id:
         raise HTTPException(status_code=403, detail="Could not identify user")
 
-    puz = today_puzzle()
-    return await get_user_stats(DB_PATH, user_id, puz["word_length"])
+    return await get_user_stats(DB_PATH, user_id, length)
 
 
 # StaticFiles must be mounted last — API routes registered above take priority

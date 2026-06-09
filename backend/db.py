@@ -225,18 +225,34 @@ async def get_user_stats(db_path: str, user_id: int, word_length: int) -> dict:
     }
 
 
-async def get_leaderboard(db_path: str, play_date: str, word_length: int) -> list[dict]:
-    """All scores for the given day. Completions sorted by moves; gave_up at the bottom."""
+async def get_leaderboard(
+    db_path: str,
+    play_date: str,
+    word_length: int | None = None,
+) -> list[dict]:
+    """
+    All scores for the given day.
+    word_length=None returns all puzzles; pass 4 or 5 to filter to one.
+    Completions sorted by moves; gave_up at the bottom.
+    """
     async with aiosqlite.connect(db_path) as db:
-        cur = await db.execute(
-            """SELECT display_name, moves, optimal, gave_up FROM scores
-               WHERE play_date = ? AND word_length = ?
-               ORDER BY gave_up ASC, moves ASC""",
-            (play_date, word_length),
-        )
+        if word_length is None:
+            cur = await db.execute(
+                """SELECT display_name, moves, optimal, gave_up, word_length FROM scores
+                   WHERE play_date = ?
+                   ORDER BY gave_up ASC, moves ASC""",
+                (play_date,),
+            )
+        else:
+            cur = await db.execute(
+                """SELECT display_name, moves, optimal, gave_up, word_length FROM scores
+                   WHERE play_date = ? AND word_length = ?
+                   ORDER BY gave_up ASC, moves ASC""",
+                (play_date, word_length),
+            )
         rows = await cur.fetchall()
         return [
-            {"name": r[0], "moves": r[1], "optimal": r[2], "gave_up": bool(r[3])}
+            {"name": r[0], "moves": r[1], "optimal": r[2], "gave_up": bool(r[3]), "word_length": r[4]}
             for r in rows
         ]
 

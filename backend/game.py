@@ -70,7 +70,7 @@ def load_words(length: int) -> set[str]:
         freq_set = set(top_n_list("en", 50_000))
         with urllib.request.urlopen(WORDLE_LIST_URL, timeout=10) as resp:
             wordle = set(resp.read().decode().split())
-        words = base & freq_set & wordle
+        words = base & wordle
     elif length == 4:
         freq_set = set(top_n_list("en", 30_000))
         words = base & freq_set
