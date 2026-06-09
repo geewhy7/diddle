@@ -488,20 +488,33 @@ body {
 }
 
 /* ---------- leaderboard screen ---------- */
-.lb-section { margin-top: 20px; }
-.lb-section:first-child { margin-top: 10px; }
-.lb-label {
-  font-family: var(--mono); font-size: 11px; letter-spacing: 1.3px;
-  text-transform: uppercase; color: var(--tg-theme-hint-color);
-  margin: 0 0 8px; font-weight: 700; border: none;
+.lb-toggle {
+  display: flex; margin-top: 14px; margin-bottom: 4px;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 10px; padding: 3px; gap: 3px;
 }
+.lb-tab {
+  flex: 1; border: none; border-radius: 8px; padding: 8px 0;
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  background: transparent; color: var(--tg-theme-hint-color);
+  transition: background 0.15s, color 0.15s;
+}
+.lb-tab.active {
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
 .lb-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 0; border-bottom: 1px solid var(--hairline);
-  font-family: var(--mono); font-size: 14px;
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 0; border-bottom: 1px solid var(--hairline);
+  font-family: var(--mono); font-size: 13px;
 }
 .lb-row:last-child { border-bottom: none; }
-.lb-rank { width: 22px; flex: 0 0 22px; color: var(--tg-theme-hint-color); font-size: 12px; }
-.lb-name { flex: 1 1 auto; color: var(--tg-theme-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.lb-badge { color: var(--acc-green); font-weight: 700; font-size: 13px; white-space: nowrap; }
-.lb-badge.giveup { color: var(--tg-theme-hint-color); font-weight: 400; }
+.lb-row.gave-up { opacity: 0.6; }
+.lb-rank { width: 24px; flex: 0 0 24px; font-size: 15px; text-align: center; }
+.lb-name { flex: 1 1 auto; color: var(--tg-theme-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.lb-moves { color: var(--tg-theme-text-color); white-space: nowrap; font-weight: 600; }
+.lb-avg { color: var(--tg-theme-hint-color); font-size: 11px; white-space: nowrap; min-width: 52px; text-align: right; }
+.lb-avg.dash { opacity: 0.45; }

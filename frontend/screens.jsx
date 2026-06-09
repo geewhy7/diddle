@@ -284,55 +284,68 @@ function LobbyScreen({ puzzles, played, onPlay, onLeaderboard }) {
 
 // ---- LeaderboardScreen -----------------------------------------------------
 
+const MEDALS = ['🥇', '🥈', '🥉'];
+
 function LeaderboardScreen({ initData, onClose }) {
-  const [board, setBoard] = React.useState(null);
-  const [err,   setErr]   = React.useState(null);
+  const [length, setLength]   = React.useState(5);
+  const [boards, setBoards]   = React.useState({});   // { 4: [...], 5: [...] }
+  const [loading, setLoading] = React.useState(false);
+  const [err,     setErr]     = React.useState(null);
 
   React.useEffect(() => {
-    const headers = initData
-      ? { Authorization: `tma ${initData}` }
-      : {};
-    fetch('/leaderboard', { headers })
+    if (boards[length] !== undefined) return;  // already fetched
+    setLoading(true);
+    const headers = initData ? { Authorization: `tma ${initData}` } : {};
+    fetch(`/leaderboard?length=${length}`, { headers })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
-      .then(setBoard)
-      .catch(() => setErr("Couldn't load leaderboard."));
-  }, []);
+      .then(data => setBoards(prev => ({ ...prev, [length]: data })))
+      .catch(() => setErr("Couldn't load leaderboard."))
+      .finally(() => setLoading(false));
+  }, [length]);
 
-  // Group by word_length, preserving server sort order within each group
-  const groups = {};
-  (board || []).forEach(e => { (groups[e.word_length] ||= []).push(e); });
+  const board = boards[length];
+  let completionRank = 0;
 
   return (
     <div className="screen">
       <div className="sheet">
         <div className="eyebrow">Today's Leaderboard</div>
-        {err && <p style={{ color: 'var(--tg-theme-hint-color)', fontFamily: 'var(--mono)', fontSize: 13 }}>{err}</p>}
-        {!board && !err && (
+
+        <div className="lb-toggle">
+          <button className={"lb-tab" + (length === 4 ? " active" : "")} onClick={() => setLength(4)}>
+            4 letters
+          </button>
+          <button className={"lb-tab" + (length === 5 ? " active" : "")} onClick={() => setLength(5)}>
+            5 letters
+          </button>
+        </div>
+
+        {err && <p style={{ color: 'var(--tg-theme-hint-color)', fontFamily: 'var(--mono)', fontSize: 13, marginTop: 16 }}>{err}</p>}
+        {loading && (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '40px 0' }}>
             <div className="spinner" />
           </div>
         )}
-        {board && [4, 5].map(len => {
-          const rows = groups[len];
-          if (!rows) return null;
-          let rank = 0;
+        {board && board.length === 0 && (
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--tg-theme-hint-color)', marginTop: 20 }}>
+            No scores yet — be the first! 🎯
+          </p>
+        )}
+        {board && board.map((e, i) => {
+          const gave  = e.gave_up;
+          const delta = e.moves - e.optimal;
+          if (!gave) completionRank++;
+          const rank  = gave ? null : completionRank;
+          const medal = rank && rank <= 3 ? MEDALS[rank - 1] : null;
+          const avgStr = e.avg !== null && e.avg !== undefined ? `+${e.avg.toFixed(1)} avg` : '—';
           return (
-            <div key={len} className="lb-section">
-              <h4 className="lb-label">{len}-letter puzzle</h4>
-              {rows.map((e, i) => {
-                const delta = e.moves - e.optimal;
-                const gave  = e.gave_up;
-                if (!gave) rank++;
-                return (
-                  <div key={i} className="lb-row">
-                    <span className="lb-rank">{gave ? '—' : rank}</span>
-                    <span className="lb-name">{e.name}</span>
-                    <span className={"lb-badge" + (gave ? " giveup" : "")}>
-                      {gave ? 'gave up' : delta === 0 ? '✨ Perfect' : `+${delta}`}
-                    </span>
-                  </div>
-                );
-              })}
+            <div key={i} className={"lb-row" + (gave ? " gave-up" : "")}>
+              <span className="lb-rank">{medal || (gave ? '—' : rank)}</span>
+              <span className="lb-name">{e.name}</span>
+              <span className="lb-moves">{gave ? 'gave up' : `${e.moves} moves`}</span>
+              <span className={"lb-avg" + (e.avg === null || e.avg === undefined ? " dash" : "")}>
+                {avgStr}
+              </span>
             </div>
           );
         })}
