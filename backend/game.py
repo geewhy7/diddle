@@ -66,14 +66,19 @@ def load_words(length: int) -> set[str]:
         if len(w.strip()) == length and w.strip().isalpha()
     }
 
+    ENABLE_URL = "https://raw.githubusercontent.com/dolph/dictionary/master/enable1.txt"
+
     if length == 5:
         freq_set = set(top_n_list("en", 50_000))
         with urllib.request.urlopen(WORDLE_LIST_URL, timeout=10) as resp:
             wordle = set(resp.read().decode().split())
         words = base & wordle
     elif length == 4:
-        freq_set = set(top_n_list("en", 30_000))
-        words = base & freq_set
+        with urllib.request.urlopen(ENABLE_URL, timeout=10) as r:
+            enable = {w.strip().lower() for w in r.read().decode().splitlines() 
+                    if len(w.strip()) == 4 and w.strip().isalpha()}
+        freq = set(top_n_list("en", 30_000))
+        words = base & enable & freq
     else:
         freq_set = set(top_n_list("en", 50_000))
         words = base & freq_set
