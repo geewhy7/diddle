@@ -26,7 +26,18 @@ CREATE TABLE IF NOT EXISTS group_messages (
     chat_id     INTEGER NOT NULL,
     message_id  INTEGER NOT NULL,
     play_date   TEXT NOT NULL,
+    play_url    TEXT,
     PRIMARY KEY (chat_id, play_date)
+);
+
+CREATE TABLE IF NOT EXISTS progress (
+    user_id      INTEGER NOT NULL,
+    play_date    TEXT NOT NULL,
+    word_length  INTEGER NOT NULL,
+    path         TEXT NOT NULL DEFAULT '[]',
+    chat_id      INTEGER,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, play_date, word_length)
 );
 
 CREATE TABLE IF NOT EXISTS group_activity (
@@ -44,6 +55,7 @@ CREATE TABLE IF NOT EXISTS group_activity (
 _MIGRATE = """
 ALTER TABLE scores ADD COLUMN invalid_attempts INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE scores ADD COLUMN chat_id INTEGER;
+ALTER TABLE group_messages ADD COLUMN play_url TEXT;
 """
 
 
@@ -358,11 +370,11 @@ async def get_user_today_scores(db_path: str, user_id: int, play_date: str) -> l
 async def get_group_message_row(db_path: str, chat_id: int, play_date: str) -> dict | None:
     async with aiosqlite.connect(db_path) as db:
         cur = await db.execute(
-            "SELECT message_id FROM group_messages WHERE chat_id = ? AND play_date = ?",
+            "SELECT message_id, play_url FROM group_messages WHERE chat_id = ? AND play_date = ?",
             (chat_id, play_date),
         )
         row = await cur.fetchone()
-    return {"message_id": row[0]} if row else None
+    return {"message_id": row[0], "play_url": row[1]} if row else None
 
 
 async def save_group_message_row(db_path: str, chat_id: int, message_id: int, play_date: str) -> None:
@@ -372,6 +384,96 @@ async def save_group_message_row(db_path: str, chat_id: int, message_id: int, pl
             (chat_id, message_id, play_date),
         )
         await db.commit()
+
+
+async def upsert_group_message_row(db_path: str, chat_id: int, message_id: int, play_date: str, play_url: str | None = None) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO group_messages (chat_id, message_id, play_date, play_url) VALUES (?, ?, ?, ?)",
+            (chat_id, message_id, play_date, play_url),
+        )
+        await db.commit()
+
+
+async def get_group_scores(db_path: str, chat_id: int, play_date: str) -> list[dict]:
+    """Users who submitted scores with this chat_id today — fallback for group_activity gaps."""
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            """SELECT user_id, display_name,
+                      MAX(CASE WHEN gave_up = 0 THEN 1 ELSE 0 END) AS has_win
+               FROM scores
+               WHERE chat_id = ? AND play_date = ?
+               GROUP BY user_id""",
+            (chat_id, play_date),
+        )
+        rows = await cur.fetchall()
+    return [
+        {
+            "user_id":      r[0],
+            "display_name": r[1],
+            "status":       "done" if r[2] else "gaveup",
+        }
+        for r in rows
+    ]
+
+
+async def upsert_progress(
+    db_path: str, user_id: int, play_date: str, word_length: int,
+    path: list, chat_id: int | None
+) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            """INSERT INTO progress (user_id, play_date, word_length, path, chat_id, updated_at)
+               VALUES (?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id, play_date, word_length) DO UPDATE SET
+                   path       = excluded.path,
+                   chat_id    = excluded.chat_id,
+                   updated_at = datetime('now')""",
+            (user_id, play_date, word_length, json.dumps(path), chat_id),
+        )
+        await db.commit()
+
+
+async def delete_progress(db_path: str, user_id: int, play_date: str, word_length: int) -> None:
+    async with aiosqlite.connect(db_path) as db:
+        await db.execute(
+            "DELETE FROM progress WHERE user_id = ? AND play_date = ? AND word_length = ?",
+            (user_id, play_date, word_length),
+        )
+        await db.commit()
+
+
+async def get_user_progress(db_path: str, user_id: int, play_date: str) -> list[dict]:
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            "SELECT word_length, path FROM progress WHERE user_id = ? AND play_date = ?",
+            (user_id, play_date),
+        )
+        rows = await cur.fetchall()
+    return [{"word_length": r[0], "path": json.loads(r[1]) if r[1] else []} for r in rows]
+
+
+async def get_progress_for_users(db_path: str, user_ids: list[int], play_date: str) -> list[dict]:
+    if not user_ids:
+        return []
+    placeholders = ",".join("?" * len(user_ids))
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            f"""SELECT user_id, word_length, path, updated_at FROM progress
+                WHERE user_id IN ({placeholders}) AND play_date = ?
+                ORDER BY updated_at DESC""",
+            (*user_ids, play_date),
+        )
+        rows = await cur.fetchall()
+    return [
+        {
+            "user_id":     r[0],
+            "word_length": r[1],
+            "path":        json.loads(r[2]) if r[2] else [],
+            "updated_at":  r[3],
+        }
+        for r in rows
+    ]
 
 
 async def upsert_group_activity(

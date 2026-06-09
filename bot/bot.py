@@ -1,6 +1,5 @@
 import logging
 import os
-import sys
 from datetime import date
 
 import httpx
@@ -8,22 +7,12 @@ from dotenv import load_dotenv
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
-from db import get_group_message_row, save_group_message_row
-
 load_dotenv()
 
 TOKEN        = os.environ["TELEGRAM_TOKEN"]
 GAME_URL     = os.environ.get("GAME_URL",     "https://diddle.retard.zone")
 BACKEND_URL  = os.environ.get("BACKEND_URL",  "http://localhost:7113")
 BOT_APP_NAME = os.environ.get("BOT_APP_NAME", "diddle")
-_raw_db_path = os.environ.get("DB_PATH", "diddle.db")
-if not os.path.isabs(_raw_db_path):
-    _backend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend")
-    DB_PATH = os.path.normpath(os.path.join(_backend_dir, _raw_db_path))
-else:
-    DB_PATH = _raw_db_path
-
 _EPOCH = date(2026, 6, 7)
 
 def _game_day() -> int:
@@ -57,17 +46,22 @@ async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     is_group = chat.type in ("group", "supergroup")
 
     if is_group:
-        play_date = date.today().isoformat()
-        existing = await get_group_message_row(DB_PATH, chat_id, play_date)
-        if existing:
-            return  # Live board already posted today — do nothing
-        day_num = _game_day()
-        keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
-        msg = await update.message.reply_text(
-            f"Diddle — Day {day_num} 🔤\n\nNo one has played yet — be first!",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-        )
-        await save_group_message_row(DB_PATH, chat_id, msg.message_id, play_date)
+        play_url = f"{_mini_app_url}?startapp=g{abs(chat_id)}"
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{BACKEND_URL}/group_message/post",
+                    json={"chat_id": chat_id, "play_url": play_url},
+                    headers={"Authorization": f"bot {TOKEN}"},
+                    timeout=15.0,
+                )
+                resp.raise_for_status()
+        except Exception:
+            log.exception("group_message/post failed for chat %s", chat_id)
+        try:
+            await update.message.delete()
+        except Exception:
+            log.warning("Could not delete /play message in chat %s", chat_id)
     else:
         keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
         await update.message.reply_text(

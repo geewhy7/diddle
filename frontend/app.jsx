@@ -6,9 +6,13 @@
 const tg          = window.Telegram?.WebApp ?? null;
 const INIT_DATA   = tg?.initData   ?? '';
 const COLOR_SCHEME = tg?.colorScheme ?? 'light';
-// Prefer ?chat_id= in URL (set by bot for group messages); fall back to initData
-const _urlChatId = new URLSearchParams(window.location.search).get('chat_id');
-const CHAT_ID    = _urlChatId ? parseInt(_urlChatId, 10) : (tg?.initDataUnsafe?.chat?.id ?? null);
+// Resolve chat_id: ?chat_id= param → startapp=gXXX → initDataUnsafe.chat.id
+const _urlChatId   = new URLSearchParams(window.location.search).get('chat_id');
+const _startParam  = tg?.initDataUnsafe?.start_param ?? '';
+const _startChatId = _startParam.startsWith('g') ? -(parseInt(_startParam.slice(1), 10)) : null;
+const CHAT_ID      = _urlChatId   ? parseInt(_urlChatId, 10)
+                   : _startChatId ? _startChatId
+                   : (tg?.initDataUnsafe?.chat?.id ?? null);
 
 if (tg) {
   tg.ready();
@@ -94,15 +98,15 @@ function buildShareText(played, dayNum) {
   return lines.join('\n');
 }
 
-// ---- Fetch today's server scores (startup sync) ----------------------------
-async function fetchMyScores() {
-  if (!INIT_DATA) return [];
+// ---- Fetch today's scores + in-progress paths (startup sync) ---------------
+async function fetchMyData() {
+  if (!INIT_DATA) return { scores: [], progress: [] };
   try {
     const res = await fetch('/me', { headers: { Authorization: `tma ${INIT_DATA}` } });
-    if (!res.ok) return [];
+    if (!res.ok) return { scores: [], progress: [] };
     return await res.json();
   } catch (_) {
-    return [];
+    return { scores: [], progress: [] };
   }
 }
 
@@ -169,6 +173,7 @@ function App() {
   const [activePuzzle, setActivePuzzle] = React.useState(null);
   // played results keyed by "${day}-${length}"
   const [played,       setPlayed]       = React.useState(loadPlayed);
+  const [inProgress,   setInProgress]   = React.useState({});
   // zoom animation origin as CSS percentage strings
   const [zoomOrigin,   setZoomOrigin]   = React.useState({ ox: '50%', oy: '50%' });
   // whether to show leaderboard overlay on the lobby
@@ -193,17 +198,21 @@ function App() {
     Promise.all([
       window.Diddle.loadFromAPI(4),
       window.Diddle.loadFromAPI(5),
-      fetchMyScores(),
+      fetchMyData(),
     ])
-      .then(([pz4, pz5, myScores]) => {
+      .then(([pz4, pz5, myData]) => {
         if (cancelled) return;
         setPuzzles({ 4: pz4, 5: pz5 });
+        const { scores: myScores, progress: myProgress } = myData;
+        const dayNum = pz4.num;
+
         // Server is authoritative — overwrite local played state with DB truth
+        const completedLengths = new Set();
         if (myScores.length > 0) {
-          const dayNum = pz4.num;
           setPlayed(prev => {
             const next = { ...prev };
             for (const s of myScores) {
+              completedLengths.add(s.word_length);
               next[`${dayNum}-${s.word_length}`] = {
                 delta:  s.gave_up ? null : s.delta,
                 moves:  s.moves,
@@ -215,6 +224,18 @@ function App() {
             return next;
           });
         }
+
+        // Restore in-progress paths for unfinished puzzles
+        if (myProgress.length > 0) {
+          const resume = {};
+          for (const p of myProgress) {
+            if (!completedLengths.has(p.word_length) && p.path.length > 1) {
+              resume[p.word_length] = p.path.map(w => w.toUpperCase());
+            }
+          }
+          if (Object.keys(resume).length > 0) setInProgress(resume);
+        }
+
         setScreen('lobby');
         // Notify the group board that this user is playing (fire-and-forget)
         if (CHAT_ID && INIT_DATA) {
@@ -291,7 +312,7 @@ function App() {
       return;
     }
 
-    // Unplayed — zoom animation into a fresh game
+    // Unplayed — zoom animation into game, resuming prior path if available
     let ox = '50%', oy = '50%';
     if (cardEl) {
       const r = cardEl.getBoundingClientRect();
@@ -300,7 +321,7 @@ function App() {
     }
     setZoomOrigin({ ox, oy });
     setActivePuzzle(puzzle);
-    setPath([puzzle.start]);
+    setPath(inProgress[puzzle.length] || [puzzle.start]);
     setInput('');
     setHint(null);
     setScoreResult(null);
@@ -341,6 +362,20 @@ function App() {
       setInput('');
       setCommitting(null);
       setTimeout(() => setPromoteIndex(-1), 660);
+
+      // Track progress after each valid move (winning move handled by POST /score)
+      if (!win && INIT_DATA) {
+        fetch('/progress', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            init_data:   INIT_DATA,
+            path:        newPath.map(w => w.toLowerCase()),
+            word_length: activePuzzle.length,
+            chat_id:     CHAT_ID,
+          }),
+        }).catch(() => {});
+      }
 
       if (win) {
         const localDelta = newPath.length - 1 - activePuzzle.par;
