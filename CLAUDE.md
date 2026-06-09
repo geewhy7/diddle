@@ -37,23 +37,36 @@ Complete word-ladder engine:
 - `build_graph(words)` — pattern-grouped adjacency graph, O(n×L)
 - `largest_component(graph)` — filters to solvable words only
 - `bfs(graph, start, end)` — shortest path
-- `pick_puzzle(words, graph)` — daily deterministic puzzle (date-seeded, EPOCH = 2026-06-07)
+- `pick_puzzle(words, graph, min_steps, max_steps, seed)` — daily deterministic puzzle.
+  Accepts optional step range and seed — used by challenge mode without modifying this file.
 - `validate(current, guess, words)` — move validation
+
+### Challenge mode (Wacky Wednesday)
+Every Wednesday (or when `FORCE_CHALLENGE=true` in `.env`) the backend serves harder puzzles:
+- **Word set**: regular connected component ∩ wordfreq top-20k (avoids obscure words in long chains)
+  → ~1,370 4L words, ~1,200 5L words (built at startup alongside regular sets)
+- **Difficulty**: `min_steps=9, max_steps=15` (vs 4–7 normal); falls back to 6–12 if no pair found
+- **Seed**: `date.toordinal() + 100_000` (separate from regular puzzle seed)
+- **Validation**: still uses the full word set — players can step through any valid word
+- **Response**: `/puzzle` includes `is_challenge: bool` — frontend can show challenge UI later
+- `FORCE_CHALLENGE=true` in `.env` lets you test on any day (backend restart required)
 
 ### backend/db.py — database layer
 Tables:
 - `scores` — one row per user per puzzle per day; UNIQUE(user_id, play_date, word_length)
-- `group_messages` — maps (chat_id, play_date) → message_id for live board
+- `group_messages` — maps (chat_id, play_date) → message_id + play_url for live board
 - `group_activity` — tracks each user's status per group per day: 'playing' | 'done' | 'gaveup'
+- `progress` — in-progress paths; upserted on each valid word, deleted on score submit
 
 Key functions: `init_db`, `save_score`, `get_leaderboard`, `get_user_stats`,
 `get_ordinal_position`, `get_alltime_stats`, `get_user_today_scores`,
-`get_group_message_row`, `save_group_message_row`, `upsert_group_activity`,
-`get_group_activity`.
+`get_group_message_row`, `upsert_group_message_row`, `upsert_group_activity`,
+`get_group_activity`, `get_group_scores`, `upsert_progress`, `delete_progress`,
+`get_user_progress`, `get_progress_for_users`.
 
 ### backend/main.py — FastAPI app
-Endpoints: `/health`, `/puzzle`, `/words`, `/score`, `/playing`, `/leaderboard`,
-`/stats`, `/stats/alltime`, `/me`
+Endpoints: `/health`, `/puzzle`, `/words`, `/progress`, `/score`, `/playing`,
+`/leaderboard`, `/stats`, `/stats/alltime`, `/me`, `/group_message/post`
 
 Group message helpers: `build_group_message(chat_id, play_date)` and
 `edit_group_message(chat_id, play_date)`. The latter calls Telegram's
@@ -185,6 +198,7 @@ DB_PATH=./diddle.db      # relative to backend/ working dir
 BACKEND_URL=http://localhost:7113
 CORS_ORIGIN=https://diddle.retard.zone
 DEV_SKIP_AUTH=false      # set true only for local testing (no Telegram)
+FORCE_CHALLENGE=false    # set true to serve challenge mode on any day (requires restart)
 ```
 
 See `.env.example` for the full template.
