@@ -1,7 +1,12 @@
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
 from datetime import date
+
+import httpx
+
+log = logging.getLogger(__name__)
 
 EPOCH = date(2026, 6, 7)   # day 1
 
@@ -20,10 +25,15 @@ from pydantic import BaseModel
 sys.path.insert(0, os.path.dirname(__file__))
 from game import load_words, build_graph, largest_component, pick_puzzle, validate
 from tg import verify_init_data
-from db import init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position, get_alltime_stats, get_user_today_scores
+from db import (
+    init_db, save_score, get_leaderboard, get_user_stats, get_ordinal_position,
+    get_alltime_stats, get_user_today_scores,
+    get_group_message_row, upsert_group_activity, get_group_activity,
+)
 
 BOT_TOKEN     = os.environ["TELEGRAM_TOKEN"]
 DB_PATH       = os.environ.get("DB_PATH", "diddle.db")
+GAME_URL      = os.environ.get("GAME_URL", "https://diddle.retard.zone")
 DEV_SKIP_AUTH = os.environ.get("DEV_SKIP_AUTH", "").lower() == "true"
 _DEV_USER     = {"id": 999_999, "first_name": "Claude", "username": "claude_dev"}
 
@@ -98,6 +108,85 @@ def _message(delta: int, gave_up: bool) -> str:
     if delta == 1:
         return "So close — 1 over par!"
     return f"+{delta} over par"
+
+
+# ── Group message helpers ──────────────────────────────────────────────────────
+
+def _delta_emoji(delta: int) -> str:
+    if delta == 0:  return "🎯"
+    if delta <= 2:  return "⭐"
+    if delta <= 4:  return "😂"
+    return "🤡"
+
+
+def _game_day_for_date(play_date: str) -> int:
+    return (date.fromisoformat(play_date) - EPOCH).days + 1
+
+
+async def build_group_message(chat_id: int, play_date: str) -> str:
+    header = f"Diddle — Day {_game_day_for_date(play_date)} 🔤"
+    activity = await get_group_activity(DB_PATH, chat_id, play_date)
+    if not activity:
+        return f"{header}\n\nNo one has played yet — be first!"
+
+    # Collect done rows with their scores for sorting
+    done_rows: list[tuple[int, str, list[dict]]] = []
+    for a in activity:
+        if a["status"] != "done":
+            continue
+        scores = await get_user_today_scores(DB_PATH, a["user_id"], play_date)
+        completed = [s for s in scores if not s["gave_up"]]
+        total_delta = sum(s["delta"] for s in completed if s["delta"] is not None)
+        done_rows.append((total_delta, a["display_name"], completed))
+    done_rows.sort(key=lambda x: x[0])
+
+    playing_rows = [a for a in activity if a["status"] == "playing"]
+    gaveup_rows  = [a for a in activity if a["status"] == "gaveup"]
+
+    lines = [header, ""]
+    for total_delta, name, completed in done_rows:
+        parts = []
+        for s in sorted(completed, key=lambda x: x["word_length"]):
+            label = "perfect" if s["delta"] == 0 else f"+{s['delta']}"
+            parts.append(f"{s['word_length']}L {label}")
+        lines.append(f"{_delta_emoji(total_delta)} {name} — {' · '.join(parts)}")
+    for a in playing_rows:
+        lines.append(f"⏱️ {a['display_name']} — playing...")
+    for a in gaveup_rows:
+        lines.append(f"💀 {a['display_name']} — gave up")
+
+    return "\n".join(lines)
+
+
+async def edit_group_message(chat_id: int, play_date: str) -> None:
+    row = await get_group_message_row(DB_PATH, chat_id, play_date)
+    if not row:
+        return
+    text = await build_group_message(chat_id, play_date)
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText",
+                json={
+                    "chat_id":    chat_id,
+                    "message_id": row["message_id"],
+                    "text":       text,
+                    "reply_markup": {
+                        "inline_keyboard": [[{
+                            "text":    "Play Diddle 🎮",
+                            "web_app": {"url": f"{GAME_URL}?chat_id={chat_id}"},
+                        }]]
+                    },
+                },
+                timeout=8.0,
+            )
+            if not r.is_success:
+                body = r.text
+                # Telegram returns 400 when content is unchanged — not an error
+                if "message is not modified" not in body:
+                    log.warning("editMessageText %s/%s failed: %s", chat_id, row["message_id"], body)
+    except Exception as exc:
+        log.warning("edit_group_message network error: %s", exc)
 
 
 # ── Public endpoints ───────────────────────────────────────────────────────────
