@@ -259,8 +259,14 @@ function PuzzleCard({ puzzle, playedResult, onPlay }) {
 
 // ---- LobbyScreen -----------------------------------------------------------
 
-function LobbyScreen({ puzzles, played, onPlay, onLeaderboard }) {
+function LobbyScreen({ puzzles, played, onPlay, onLeaderboard, onShare }) {
   const dayNum = puzzles[4]?.num || puzzles[5]?.num || '';
+
+  const completedCount = [4, 5].filter(len => {
+    const e = played[`${dayNum}-${len}`];
+    return e && !e.gaveUp;
+  }).length;
+  const shareLabel = completedCount === 2 ? 'Share Scores' : 'Share Score';
 
   return (
     <div className="screen lobby">
@@ -275,9 +281,62 @@ function LobbyScreen({ puzzles, played, onPlay, onLeaderboard }) {
           />
         ) : null)}
       </div>
+      {completedCount > 0 && (
+        <button className="lobby-share-btn" onClick={onShare}>
+          {shareLabel} 📋
+        </button>
+      )}
       <button className="lobby-lb-btn" onClick={onLeaderboard}>
         🏆 Today's Leaderboard
       </button>
+    </div>
+  );
+}
+
+// ---- ResultScreen (replay a previously completed or gave-up puzzle) --------
+
+function ResultScreen({ puzzle, path, gaveUp, delta, onShare, onClose }) {
+  const moves   = path.length - 1;
+  const perfect = !gaveUp && delta === 0;
+  const last    = path[path.length - 1];
+  const away    = gaveUp ? puzzle.bestFromHere(last) : 0;
+
+  return (
+    <div className="screen">
+      <div className="sheet">
+        <div className="eyebrow">Day {puzzle.num} · {puzzle.length} letters</div>
+        <h1 className={"headline" + (perfect ? " win" : "")}>
+          {gaveUp ? 'Maybe tomorrow.' : perfect ? 'Perfect!' : 'Solved!'}
+        </h1>
+        {gaveUp && (
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--tg-theme-hint-color)', marginTop: 8 }}>
+            You were {away === Infinity ? 'a few' : away} {away === 1 ? 'move' : 'moves'} from{' '}
+            <b style={{ color: 'var(--tg-theme-text-color)' }}>{puzzle.target}</b>.
+          </p>
+        )}
+        {!gaveUp && (
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 14, color: 'var(--tg-theme-text-color)', marginTop: 12 }}>
+            {moves} {moves === 1 ? 'move' : 'moves'}{delta > 0 ? ` · +${delta} over par` : ' · perfect par'}
+          </p>
+        )}
+        <Replay
+          title={gaveUp ? 'how far you got' : 'your solution'}
+          path={path}
+          target={puzzle.target}
+        />
+        {gaveUp && (
+          <Replay
+            title={`the shortest route · ${puzzle.par} moves`}
+            path={puzzle.optimalPath}
+            target={puzzle.target}
+            optimal={true}
+          />
+        )}
+      </div>
+      <div className="mainbtn-wrap">
+        {onShare && <button className="mainbtn green" onClick={onShare}>Share result</button>}
+        <button className="linkbtn" onClick={onClose}>← Back to puzzles</button>
+      </div>
     </div>
   );
 }
@@ -359,5 +418,5 @@ function LeaderboardScreen({ initData, onClose }) {
 
 Object.assign(window, {
   LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen,
-  LobbyScreen, PuzzleCard, LeaderboardScreen,
+  LobbyScreen, PuzzleCard, LeaderboardScreen, ResultScreen,
 });

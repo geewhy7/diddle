@@ -17,7 +17,7 @@ if (tg) {
 // ---- Globals set by components.jsx, screens.jsx ----------------------------
 const {
   LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen,
-  LobbyScreen, LeaderboardScreen,
+  LobbyScreen, LeaderboardScreen, ResultScreen,
   Wordmark, Mark,
 } = window;
 
@@ -238,8 +238,20 @@ function App() {
     }
   }, [screen]);
 
-  // ---- Handle card tap (start a puzzle) ------------------------------------
+  // ---- Handle card tap -----------------------------------------------------
   const handlePlay = (puzzle, cardEl) => {
+    const key = `${puzzle.num}-${puzzle.length}`;
+    const playedEntry = played[key];
+
+    if (playedEntry) {
+      // Already played — show their completed ladder without zoom
+      setActivePuzzle(puzzle);
+      setPath(playedEntry.path || [puzzle.start, puzzle.target]);
+      setScreen('result');
+      return;
+    }
+
+    // Unplayed — zoom animation into a fresh game
     let ox = '50%', oy = '50%';
     if (cardEl) {
       const r = cardEl.getBoundingClientRect();
@@ -291,15 +303,22 @@ function App() {
       setTimeout(() => setPromoteIndex(-1), 660);
 
       if (win) {
+        const localDelta = newPath.length - 1 - activePuzzle.par;
+        const key = `${activePuzzle.num}-${activePuzzle.length}`;
         setStats(prev => recordWin(prev, activePuzzle.num, activePuzzle.length,
-                                   Math.max(0, finalMoves - activePuzzle.par)));
+                                   Math.max(0, localDelta)));
+        // Save immediately so lobby card updates; rank filled in after API responds
+        setPlayed(prev => {
+          const next = { ...prev, [key]: { delta: localDelta, moves: newPath.length - 1, gaveUp: false, path: newPath } };
+          try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
+          return next;
+        });
         postScore(newPath, false, invalidAttempts, activePuzzle.length).then(async r => {
           if (!r) return;
           setScoreResult(r);
-          // Mark this puzzle as played in localStorage + state
-          const key = `${activePuzzle.num}-${activePuzzle.length}`;
           setPlayed(prev => {
-            const next = { ...prev, [key]: { delta: r.delta, moves: r.moves, gaveUp: false, rank: r.rank } };
+            const existing = prev[key] || {};
+            const next = { ...prev, [key]: { ...existing, delta: r.delta, rank: r.rank } };
             try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
             return next;
           });
@@ -323,24 +342,24 @@ function App() {
     const snap = [...path];
     const len  = activePuzzle.length;
     const num  = activePuzzle.num;
-    postScore(snap, true, 0, len).then(r => {
-      if (!r) return;
-      setScoreResult(r);
-      const key = `${num}-${len}`;
-      setPlayed(prev => {
-        const next = { ...prev, [key]: { delta: null, moves: snap.length - 1, gaveUp: true } };
-        try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
-        return next;
-      });
+    const key  = `${num}-${len}`;
+    // Save immediately so lobby card updates
+    setPlayed(prev => {
+      const next = { ...prev, [key]: { delta: null, moves: snap.length - 1, gaveUp: true, path: snap } };
+      try { localStorage.setItem(PLAYED_KEY, JSON.stringify(next)); } catch (_) {}
+      return next;
     });
+    postScore(snap, true, 0, len).then(r => { if (r) setScoreResult(r); });
     setScreen('gaveup');
   };
 
-  // ---- Share ---------------------------------------------------------------
+  // ---- Share / retry -------------------------------------------------------
   const handleShare = () => shareRef.current?.();
   const handleRetry = () => window.location.reload();
 
   // ---- Render --------------------------------------------------------------
+  const isInPuzzle = !['loading', 'lobby', 'zooming', 'error'].includes(screen);
+
   let body;
   if (screen === 'loading') {
     body = <LoadingScreen />;
@@ -352,6 +371,18 @@ function App() {
                            onShare={handleShare} onClose={handleBackToLobby} />;
   } else if (screen === 'gaveup') {
     body = <GaveUpScreen puzzle={activePuzzle} path={path} onClose={handleBackToLobby} />;
+  } else if (screen === 'result') {
+    const entry = activePuzzle ? played[`${activePuzzle.num}-${activePuzzle.length}`] : null;
+    body = (
+      <ResultScreen
+        puzzle={activePuzzle}
+        path={path}
+        gaveUp={entry?.gaveUp || false}
+        delta={entry?.delta ?? 0}
+        onShare={!entry?.gaveUp ? handleShare : null}
+        onClose={handleBackToLobby}
+      />
+    );
   } else if (screen === 'playing') {
     body = (
       <PlayingScreen
@@ -376,6 +407,7 @@ function App() {
           ? <LeaderboardScreen initData={INIT_DATA} onClose={() => setShowLb(false)} />
           : <LobbyScreen puzzles={puzzles} played={played}
                          onPlay={handlePlay}
+                         onShare={handleShare}
                          onLeaderboard={() => setShowLb(true)} />
         }
         {screen === 'zooming' && (
@@ -400,6 +432,9 @@ function App() {
       data-motion="med"
     >
       <div className="tg-header">
+        {isInPuzzle && (
+          <button className="back-btn" onClick={handleBackToLobby} aria-label="Back to lobby">‹</button>
+        )}
         <Mark />
         <Wordmark />
         <span className="sub">{subLabel}</span>
