@@ -305,6 +305,11 @@ async def score(submission: ScoreSubmission):
         chat_id=chat_id,
     )
 
+    if chat_id:
+        status = "gaveup" if submission.gave_up else "done"
+        await upsert_group_activity(DB_PATH, chat_id, user_id, display_name, play_date, status)
+        await edit_group_message(chat_id, play_date)
+
     board = await get_leaderboard(DB_PATH, play_date, word_length)
     delta = stored["moves"] - optimal
     ordinal = await get_ordinal_position(
