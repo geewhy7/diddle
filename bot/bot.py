@@ -5,7 +5,7 @@ from datetime import date
 
 import httpx
 from dotenv import load_dotenv
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend"))
@@ -62,8 +62,7 @@ async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if existing:
             return  # Live board already posted today — do nothing
         day_num = _game_day()
-        mini_app_url = f"{GAME_URL}?chat_id={chat_id}"
-        keyboard = [[InlineKeyboardButton("Play Diddle 🎮", web_app=WebAppInfo(url=mini_app_url))]]
+        keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
         msg = await update.message.reply_text(
             f"Diddle — Day {day_num} 🔤\n\nNo one has played yet — be first!",
             reply_markup=InlineKeyboardMarkup(keyboard),

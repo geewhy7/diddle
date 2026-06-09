@@ -171,12 +171,6 @@ async def edit_group_message(chat_id: int, play_date: str) -> None:
                     "chat_id":    chat_id,
                     "message_id": row["message_id"],
                     "text":       text,
-                    "reply_markup": {
-                        "inline_keyboard": [[{
-                            "text":    "Play Diddle 🎮",
-                            "web_app": {"url": f"{GAME_URL}?chat_id={chat_id}"},
-                        }]]
-                    },
                 },
                 timeout=8.0,
             )
