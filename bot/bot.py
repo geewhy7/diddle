@@ -17,7 +17,12 @@ TOKEN        = os.environ["TELEGRAM_TOKEN"]
 GAME_URL     = os.environ.get("GAME_URL",     "https://diddle.retard.zone")
 BACKEND_URL  = os.environ.get("BACKEND_URL",  "http://localhost:7113")
 BOT_APP_NAME = os.environ.get("BOT_APP_NAME", "diddle")
-DB_PATH      = os.environ.get("DB_PATH",      "diddle.db")
+_raw_db_path = os.environ.get("DB_PATH", "diddle.db")
+if not os.path.isabs(_raw_db_path):
+    _backend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "backend")
+    DB_PATH = os.path.normpath(os.path.join(_backend_dir, _raw_db_path))
+else:
+    DB_PATH = _raw_db_path
 
 _EPOCH = date(2026, 6, 7)
 
