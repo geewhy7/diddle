@@ -70,7 +70,8 @@ function PlayingScreen({ puzzle, path, input, setInput, onSubmit, hint, shake, c
         <div className="history" ref={historyRef}>
           {path.map((w, i) => (
             <ChainRow key={i} word={w} target={puzzle.target} step={i}
-              isWin={w === puzzle.target} promote={i === promoteIndex} />
+              isWin={w === puzzle.target} promote={i === promoteIndex}
+              prev={i > 0 ? path[i - 1] : null} />
           ))}
         </div>
 

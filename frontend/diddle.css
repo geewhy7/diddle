@@ -137,6 +137,9 @@ body {
 }
 /* success: when row reaches target it can go green */
 .tile.win { background: var(--acc-green) !important; border-color: var(--acc-green) !important; color: #fff !important; }
+/* changed letter: thicker border on the one tile that differs from the previous word */
+.tile.changed { border-width: 2px; border-color: var(--tg-theme-hint-color); }
+.tile.changed.hit { border-color: var(--acc-green); }
 
 /* ---------- chain rows ---------- */
 /* ---------- playing layout: scrollable history with a locked entry row below ---------- */
