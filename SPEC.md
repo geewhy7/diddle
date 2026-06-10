@@ -67,7 +67,7 @@ and identical for all players. **Do not modify this function.**
 
 ---
 
-## Challenge mode (Wacky Wednesday)
+## Challenge mode (Wicked Wednesday)
 
 Every Wednesday — or any day when `FORCE_CHALLENGE=true` is set in `.env` —
 the backend serves harder puzzles:
@@ -80,6 +80,9 @@ the backend serves harder puzzles:
 - **Validation**: still uses the full regular word set, so players can step
   through any valid word
 - `GET /puzzle` includes `is_challenge: bool` for the frontend
+- **Frontend treatment**: a red "Wicked Wednesday" rubber stamp slams onto the
+  lobby (tilted, double-ring border, `--stamp` ink color per theme), puzzle
+  cards get a red-tinted border + red par, and the header shows 😈 in-game
 
 ---
 
@@ -390,6 +393,5 @@ previous word gets a slightly thicker coloured border. Computed by
    file `deploy/diddle-bot.service` exists but the bot currently runs in tmux.
    Needs a venv or system-python dependencies resolved first (aiosqlite, httpx).
 
-2. **Challenge mode has no frontend treatment** — `/puzzle` returns
-   `is_challenge` but the UI doesn't surface it (no banner/badge), and the
-   stats distribution buckets cap at 6+ extra moves.
+2. **Stats distribution buckets cap at 6+ extra moves** — challenge-day
+   deltas can blow well past that, so they all pile into the 6+ bucket.

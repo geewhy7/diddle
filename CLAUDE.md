@@ -41,14 +41,15 @@ Complete word-ladder engine:
   Accepts optional step range and seed — used by challenge mode without modifying this file.
 - `validate(current, guess, words)` — move validation
 
-### Challenge mode (Wacky Wednesday)
+### Challenge mode (Wicked Wednesday)
 Every Wednesday (or when `FORCE_CHALLENGE=true` in `.env`) the backend serves harder puzzles:
 - **Word set**: regular connected component ∩ wordfreq top-20k (avoids obscure words in long chains)
   → ~1,370 4L words, ~1,200 5L words (built at startup alongside regular sets)
 - **Difficulty**: `min_steps=9, max_steps=15` (vs 4–7 normal); falls back to 6–12 if no pair found
 - **Seed**: `date.toordinal() + 100_000` (separate from regular puzzle seed)
 - **Validation**: still uses the full word set — players can step through any valid word
-- **Response**: `/puzzle` includes `is_challenge: bool` — frontend can show challenge UI later
+- **Response**: `/puzzle` includes `is_challenge: bool` — frontend shows a red
+  "Wicked Wednesday" stamp on the lobby, red-tinted cards, and 😈 in the header
 - `FORCE_CHALLENGE=true` in `.env` lets you test on any day (backend restart required)
 
 ### backend/db.py — database layer

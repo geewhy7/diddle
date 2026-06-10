@@ -261,7 +261,8 @@ function PuzzleCard({ puzzle, playedResult, onPlay }) {
   return (
     <div
       ref={cardRef}
-      className={"puzzle-card" + (played ? " played" : "") + (perfect ? " perfect" : "")}
+      className={"puzzle-card" + (played ? " played" : "") + (perfect ? " perfect" : "")
+        + (puzzle.isChallenge ? " challenge" : "")}
       onClick={() => onPlay(puzzle, cardRef.current)}
     >
       <div className="card-label">{puzzle.length} letters</div>
@@ -280,6 +281,7 @@ function PuzzleCard({ puzzle, playedResult, onPlay }) {
 
 function LobbyScreen({ puzzles, played, onPlay, onLeaderboard, onShare }) {
   const dayNum = puzzles[4]?.num || puzzles[5]?.num || '';
+  const isChallenge = !!(puzzles[4]?.isChallenge || puzzles[5]?.isChallenge);
 
   const completedCount = [4, 5].filter(len => {
     const e = played[`${dayNum}-${len}`];
@@ -289,7 +291,15 @@ function LobbyScreen({ puzzles, played, onPlay, onLeaderboard, onShare }) {
 
   return (
     <div className="screen lobby">
+      {isChallenge && (
+        <div className="challenge-stamp" aria-label="Wicked Wednesday — extra hard puzzles today">
+          Wicked<br />Wednesday
+        </div>
+      )}
       <div className="lobby-day">Day {dayNum} — choose your puzzle</div>
+      {isChallenge && (
+        <div className="challenge-note">today's ladders run deep — good luck 😈</div>
+      )}
       <div className="lobby-cards">
         {[4, 5].map(len => puzzles[len] ? (
           <PuzzleCard

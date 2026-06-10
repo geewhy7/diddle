@@ -524,7 +524,7 @@ function App() {
 
   const dayNum = puzzles[4]?.num || puzzles[5]?.num || '';
   const subLabel = activePuzzle && screen !== 'lobby'
-    ? `day ${activePuzzle.num} · ${activePuzzle.length} letters`
+    ? `day ${activePuzzle.num} · ${activePuzzle.length} letters${activePuzzle.isChallenge ? ' · 😈' : ''}`
     : dayNum ? `day ${dayNum}` : 'loading…';
 
   return (

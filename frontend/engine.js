@@ -83,7 +83,7 @@
     if (!pzRes.ok) throw new Error(`Puzzle fetch failed (${pzRes.status})`);
     if (!wRes.ok)  throw new Error(`Words fetch failed (${wRes.status})`);
 
-    const { start, end, optimal_steps, day, word_length } = await pzRes.json();
+    const { start, end, optimal_steps, day, word_length, is_challenge } = await pzRes.json();
     const wordText = await wRes.text();
 
     const words = wordText.trim().split('\n')
@@ -102,6 +102,7 @@
       start:  startUC,
       target: targetUC,
       par:    optimal_steps,
+      isChallenge: !!is_challenge,
       optimalPath,
       dict: new Set(words),
       adj,
