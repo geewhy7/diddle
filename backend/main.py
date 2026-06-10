@@ -40,8 +40,24 @@ DEV_SKIP_AUTH = os.environ.get("DEV_SKIP_AUTH", "").lower() == "true"
 FORCE_CHALLENGE = os.environ.get("FORCE_CHALLENGE", "").lower() == "true"
 _DEV_USER     = {"id": 999_999, "first_name": "Claude", "username": "claude_dev"}
 
-CHALLENGE_MIN_STEPS   = 9
-CHALLENGE_MAX_STEPS   = 15
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "")
+    try:
+        return int(raw)
+    except ValueError:
+        if raw:
+            log.warning("%s=%r is not an integer — using default %d", name, raw, default)
+        return default
+
+
+# Difficulty knobs — all overridable in .env (backend restart required).
+# Changing a range mid-day re-rolls that day's puzzle; prefer changing after midnight.
+PUZZLE_MIN_STEPS      = _env_int("PUZZLE_MIN_STEPS", 4)
+PUZZLE_MAX_STEPS      = _env_int("PUZZLE_MAX_STEPS", 7)
+CHALLENGE_MIN_STEPS   = _env_int("CHALLENGE_MIN_STEPS", 9)
+CHALLENGE_MAX_STEPS   = _env_int("CHALLENGE_MAX_STEPS", 15)
+CHALLENGE_FREQ_TOP_N  = _env_int("CHALLENGE_FREQ_TOP_N", 20_000)
 CHALLENGE_SEED_OFFSET = 100_000  # separates challenge seeds from regular seeds
 
 
@@ -76,9 +92,9 @@ WORD_LENGTHS = (4, 5)
 async def lifespan(app: FastAPI):
     try:
         from wordfreq import top_n_list
-        freq_20k = set(top_n_list("en", 20_000))
+        freq_top = set(top_n_list("en", CHALLENGE_FREQ_TOP_N))
     except ImportError:
-        freq_20k = set()
+        freq_top = set()
         log.warning("wordfreq unavailable — challenge word lists will equal regular lists")
 
     for length in WORD_LENGTHS:
@@ -87,8 +103,8 @@ async def lifespan(app: FastAPI):
         _words[length] = largest_component(graph)
         _graph[length] = graph
 
-        # Challenge set: connected regular words filtered to top-20k frequency
-        c_raw = {w for w in _words[length] if w in freq_20k} if freq_20k else _words[length]
+        # Challenge set: connected regular words filtered to top-N frequency
+        c_raw = {w for w in _words[length] if w in freq_top} if freq_top else _words[length]
         c_graph = build_graph(c_raw)
         _challenge_words[length] = largest_component(c_graph)
         _challenge_graph[length] = c_graph
@@ -141,7 +157,16 @@ def today_puzzle(length: int = 5) -> dict:
         return _challenge_puzzles[length]
 
     if _puzzle_days.get(length) != today:
-        start, end, path = pick_puzzle(_words[length], _graph[length])
+        try:
+            start, end, path = pick_puzzle(
+                _words[length], _graph[length],
+                min_steps=PUZZLE_MIN_STEPS, max_steps=PUZZLE_MAX_STEPS,
+            )
+        except RuntimeError:
+            log.warning("Puzzle (%dL): no %d-%d step pair found, falling back to 4-7",
+                        length, PUZZLE_MIN_STEPS, PUZZLE_MAX_STEPS)
+            start, end, path = pick_puzzle(_words[length], _graph[length],
+                                           min_steps=4, max_steps=7)
         _puzzles[length] = {
             "start":         start,
             "end":           end,

@@ -43,9 +43,11 @@ Complete word-ladder engine:
 
 ### Challenge mode (Wicked Wednesday)
 Every Wednesday (or when `FORCE_CHALLENGE=true` in `.env`) the backend serves harder puzzles:
-- **Word set**: regular connected component ∩ wordfreq top-20k (avoids obscure words in long chains)
+- **Word set**: regular connected component ∩ wordfreq top-N (`CHALLENGE_FREQ_TOP_N`,
+  default 20k — avoids obscure words in long chains)
   → ~1,370 4L words, ~1,200 5L words (built at startup alongside regular sets)
-- **Difficulty**: `min_steps=9, max_steps=15` (vs 4–7 normal); falls back to 6–12 if no pair found
+- **Difficulty**: `CHALLENGE_MIN_STEPS`–`CHALLENGE_MAX_STEPS` in .env (default 9–15,
+  vs `PUZZLE_MIN_STEPS`–`PUZZLE_MAX_STEPS` default 4–7 normal); falls back to 6–12 if no pair found
 - **Seed**: `date.toordinal() + 100_000` (separate from regular puzzle seed)
 - **Validation**: still uses the full word set — players can step through any valid word
 - **Response**: `/puzzle` includes `is_challenge: bool` — frontend shows a red
@@ -199,11 +201,22 @@ BOT_APP_NAME=diddle      # mini app short name (registered with BotFather)
 DB_PATH=./diddle.db      # relative to backend/ working dir
 BACKEND_URL=http://localhost:7113
 CORS_ORIGIN=https://diddle.retard.zone
+PUZZLE_MIN_STEPS=4       # regular puzzle difficulty range
+PUZZLE_MAX_STEPS=7
+CHALLENGE_MIN_STEPS=9    # Wicked Wednesday difficulty range
+CHALLENGE_MAX_STEPS=15
+CHALLENGE_FREQ_TOP_N=20000  # challenge word pool = regular ∩ wordfreq top-N
 DEV_SKIP_AUTH=false      # set true only for local testing (no Telegram)
-FORCE_CHALLENGE=false    # set true to serve challenge mode on any day (requires restart)
+FORCE_CHALLENGE=false    # set true to serve challenge mode on any day
 ```
 
-See `.env.example` for the full template.
+See `.env.example` for the full template. `.env` is the single config source
+for both processes: systemd injects it into the backend via `EnvironmentFile`,
+and the bot loads it via `load_dotenv()`. **No change takes effect until the
+relevant process restarts** (backend: `sudo systemctl restart diddle-backend`;
+bot: restart in tmux). Changing a difficulty range mid-day re-rolls that day's
+puzzle — late submitters against the old puzzle get rejected — so prefer
+changing ranges after midnight.
 
 ---
 

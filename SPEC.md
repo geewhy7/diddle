@@ -72,10 +72,13 @@ and identical for all players. **Do not modify this function.**
 Every Wednesday — or any day when `FORCE_CHALLENGE=true` is set in `.env` —
 the backend serves harder puzzles:
 
-- **Word set**: regular connected component ∩ wordfreq top-20k
-  (~1,370 4L / ~1,200 5L words), built at startup alongside the regular sets
-- **Difficulty**: `min_steps=9, max_steps=15` (vs 4–7 normal);
-  falls back to 6–12 if no qualifying pair exists
+- **Word set**: regular connected component ∩ wordfreq top-N
+  (`CHALLENGE_FREQ_TOP_N`, default 20k → ~1,370 4L / ~1,200 5L words),
+  built at startup alongside the regular sets
+- **Difficulty**: `CHALLENGE_MIN_STEPS`–`CHALLENGE_MAX_STEPS` (default 9–15,
+  vs regular `PUZZLE_MIN_STEPS`–`PUZZLE_MAX_STEPS` default 4–7);
+  falls back to 6–12 if no qualifying pair exists. All set in `.env`,
+  backend restart required.
 - **Seed**: `date.toordinal() + 100_000` — independent of the regular seed
 - **Validation**: still uses the full regular word set, so players can step
   through any valid word
