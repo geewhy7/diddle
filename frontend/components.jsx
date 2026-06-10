@@ -48,10 +48,47 @@ function ChainRow({ word, target, step, isWin, promote, prev }) {
     : -1;
   const cls = ["row"];
   if (promote) cls.push("promote");
+  if (isWin) cls.push("winrow");
   return (
     <div className={cls.join(" ")}>
       <div className="gutter">{step}</div>
       <Tiles word={word} target={target} win={isWin} changedIdx={changedIdx} />
+    </div>
+  );
+}
+
+// win celebration: a confetti cannon. Pieces launch upward from around the
+// winning row, arc under gravity (rise/fall keyframes), drift, spin, fade.
+// Perfect-par wins mix 🎯 emoji in with the confetti.
+const CONFETTI_COLORS = ["#1ba35e", "#3ddc84", "#2f8fda", "#f5b942", "#e0564f", "#9b6ef3"];
+
+function Confetti({ perfect = false, count = 80 }) {
+  const pieces = React.useMemo(() => Array.from({ length: count }, (_, i) => ({
+    left:  6 + Math.random() * 88,                                  // launch x (%)
+    up:    -(140 + Math.random() * 360),                            // rise (px)
+    fall:  420 + Math.random() * 400,                               // fall past origin (px)
+    drift: (Math.random() - 0.5) * 260,                             // horizontal drift (px)
+    dur:   1.1 + Math.random() * 0.7,
+    delay: Math.random() * 0.18,
+    rot:   (Math.random() < 0.5 ? -1 : 1) * (240 + Math.random() * 540),
+    emoji: perfect && i % 9 === 0 ? "🎯" : null,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    round: Math.random() < 0.25,
+  })), []);
+  return (
+    <div className="confetti" aria-hidden="true">
+      {pieces.map((p, i) => (
+        <span key={i} className="cf-x"
+              style={{ left: p.left + "%", "--drift": p.drift + "px",
+                       "--dur": p.dur + "s", "--delay": p.delay + "s" }}>
+          <span className="cf-y" style={{ "--up": p.up + "px", "--fall": p.fall + "px" }}>
+            {p.emoji
+              ? <span className="cf-r emoji" style={{ "--rot": p.rot + "deg" }}>{p.emoji}</span>
+              : <span className={"cf-r" + (p.round ? " round" : "")}
+                      style={{ "--rot": p.rot + "deg", background: p.color }} />}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }
@@ -117,4 +154,4 @@ function Replay({ title, path, target, optimal = false }) {
   );
 }
 
-Object.assign(window, { Mark, Wordmark, Tiles, ChainRow, Replay, Keyboard });
+Object.assign(window, { Mark, Wordmark, Tiles, ChainRow, Replay, Keyboard, Confetti });

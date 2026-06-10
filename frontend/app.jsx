@@ -24,7 +24,7 @@ if (tg) {
 const {
   LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen,
   LobbyScreen, LeaderboardScreen, ResultScreen,
-  Wordmark, Mark,
+  Wordmark, Mark, Confetti,
 } = window;
 
 // ---- Win stats (localStorage) — per-puzzle-length counters -----------------
@@ -185,7 +185,8 @@ function App() {
   const [shake,        setShake]        = React.useState(false);
   const [committing,   setCommitting]   = React.useState(null);
   const [promoteIndex, setPromoteIndex] = React.useState(-1);
-  const [bounce,       setBounce]       = React.useState(false);
+  // win celebration overlay: null | { perfect: bool }
+  const [celebrating,  setCelebrating]  = React.useState(null);
   const [toast,        setToast]        = React.useState(null);
   const [stats,        setStats]        = React.useState(loadStats);
   const [scoreResult,  setScoreResult]  = React.useState(null);
@@ -337,7 +338,7 @@ function App() {
 
   // ---- Submit --------------------------------------------------------------
   const submit = () => {
-    if (!activePuzzle || committing || bounce) return;
+    if (!activePuzzle || committing || celebrating) return;
     const last = path[path.length - 1];
     const res  = activePuzzle.validate(last, input);
     if (!res.ok) {
@@ -380,6 +381,12 @@ function App() {
       if (win) {
         const localDelta = newPath.length - 1 - activePuzzle.par;
         const key = `${activePuzzle.num}-${activePuzzle.length}`;
+        // Celebrate immediately — the green flip just finished, no dead air.
+        // Results come in while confetti is still falling over them.
+        setCelebrating({ perfect: localDelta <= 0 });
+        tg?.HapticFeedback?.notificationOccurred('success');
+        setTimeout(() => setScreen('finished'), 1100);
+        setTimeout(() => setCelebrating(null), 2200);
         setStats(prev => recordWin(prev, activePuzzle.num, activePuzzle.length,
                                    Math.max(0, localDelta)));
         // Save immediately so lobby card updates; rank filled in after API responds
@@ -409,10 +416,6 @@ function App() {
           const apiStats = await fetchStats(activePuzzle.length);
           if (apiStats) setStats(apiStatsToLocal(apiStats));
         });
-        setTimeout(() => {
-          setBounce(true);
-          setTimeout(() => { setBounce(false); setScreen('finished'); }, 1000);
-        }, 900);
       }
     };
 
@@ -496,7 +499,7 @@ function App() {
         shake={shake}
         committing={committing}
         promoteIndex={promoteIndex}
-        celebrating={bounce}
+        celebrating={!!celebrating}
         onGiveUp={handleGiveUp}
       />
     );
@@ -541,6 +544,7 @@ function App() {
         <span className="sub">{subLabel}</span>
       </div>
       {body}
+      {celebrating && <Confetti perfect={celebrating.perfect} />}
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

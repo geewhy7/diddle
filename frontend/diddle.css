@@ -250,19 +250,37 @@ body {
 .app:not([data-motion="off"]) .history.rising { animation: riseUp 0.6s cubic-bezier(.2,.8,.2,1); }
 @keyframes riseUp { from { transform: translateY(var(--rise, 52px)); } to { transform: translateY(0); } }
 
-/* win celebration: one big launch + decaying ball-bounces (gravity easing) */
-.app:not([data-motion="off"]) .playstack.bounce { animation: stackBounce 0.95s; }
-@keyframes stackBounce {
-  0%   { transform: translateY(0);     animation-timing-function: cubic-bezier(.2,.85,.3,1); }
-  14%  { transform: translateY(-52px); animation-timing-function: cubic-bezier(.6,0,.85,.4); }
-  32%  { transform: translateY(0);     animation-timing-function: cubic-bezier(.2,.85,.3,1); }
-  48%  { transform: translateY(-25px); animation-timing-function: cubic-bezier(.6,0,.85,.4); }
-  64%  { transform: translateY(0);     animation-timing-function: cubic-bezier(.2,.85,.3,1); }
-  78%  { transform: translateY(-10px); animation-timing-function: cubic-bezier(.6,0,.85,.4); }
-  90%  { transform: translateY(0);     animation-timing-function: cubic-bezier(.2,.85,.3,1); }
-  96%  { transform: translateY(-4px);  animation-timing-function: cubic-bezier(.6,0,.85,.4); }
-  100% { transform: translateY(0); }
+/* win celebration: the winning row pops as it lands; confetti does the rest */
+.app:not([data-motion="off"]) .row.winrow { animation: winPop .55s cubic-bezier(.2,.8,.2,1) .05s both; }
+@keyframes winPop { 0% { transform: scale(1); } 35% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+/* ---------- confetti cannon (Confetti component) ----------
+   three nested spans per piece: .cf-x drifts horizontally + fades,
+   .cf-y rises then falls (gravity via per-keyframe easing), .cf-r spins. */
+.confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 60; }
+.confetti .cf-x {
+  position: absolute; top: 64%;
+  animation: cfDrift var(--dur, 1.4s) ease-out var(--delay, 0s) both;
 }
+.confetti .cf-y { display: block; animation: cfArc var(--dur, 1.4s) var(--delay, 0s) both; }
+.confetti .cf-r {
+  display: block; width: 8px; height: 13px; border-radius: 2px;
+  animation: cfSpin var(--dur, 1.4s) linear var(--delay, 0s) both;
+}
+.confetti .cf-r.round { width: 9px; height: 9px; border-radius: 50%; }
+.confetti .cf-r.emoji { width: auto; height: auto; font-size: 20px; line-height: 1; background: none; }
+@keyframes cfDrift {
+  0%   { transform: translateX(0); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: translateX(var(--drift, 0px)); opacity: 0; }
+}
+@keyframes cfArc {
+  0%   { transform: translateY(0);                animation-timing-function: cubic-bezier(.16,.74,.36,1); }
+  36%  { transform: translateY(var(--up, -260px)); animation-timing-function: cubic-bezier(.55,.04,.83,.4); }
+  100% { transform: translateY(var(--fall, 540px)); }
+}
+@keyframes cfSpin { to { transform: rotate(var(--rot, 360deg)); } }
+.app[data-motion="off"] .confetti { display: none; }
 
 /* ---------- scrollable result screens ---------- */
 .sheet { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 22px 20px 16px; }
@@ -398,7 +416,9 @@ body {
 .app[data-motion="low"] .row.enter { --rowdur: 180ms; }
 .app[data-motion="high"] .row.enter { --rowdur: 360ms; }
 @media (prefers-reduced-motion: reduce) {
-  .app .row.enter, .app .tile.hit, .app .tile.flip, .app .headline.win { animation: none !important; }
+  .app .row.enter, .app .tile.hit, .app .tile.flip, .app .headline.win,
+  .app .row.winrow { animation: none !important; }
+  .app .confetti { display: none; }
 }
 
 /* ---------- finished screen (Poople-style results) ---------- */
