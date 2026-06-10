@@ -1,6 +1,7 @@
 import html
 import logging
 import os
+import random
 import sys
 from contextlib import asynccontextmanager
 from datetime import date
@@ -63,7 +64,14 @@ CHALLENGE_SEED_OFFSET = 100_000  # separates challenge seeds from regular seeds
 
 
 def is_challenge_day() -> bool:
-    return FORCE_CHALLENGE or date.today().weekday() == 2  # Wednesday
+    """Hard Mode hits one deterministic-random day each ISO week.
+    Salt 'hardmode' is load-bearing: chosen so week 24/2026 (the first Hard
+    Mode week) lands on Wednesday — changing it re-rolls every week's day."""
+    if FORCE_CHALLENGE:
+        return True
+    today = date.today()
+    year, week, _ = today.isocalendar()
+    return today.weekday() == random.Random(f"hardmode-{year}-{week}").randrange(7)
 
 
 def _auth_user(init_data: str) -> tuple[dict, int | None]:
@@ -225,7 +233,7 @@ async def build_group_message(chat_id: int, play_date: str) -> str:
     header   = f"🔤 <b>Diddle #{_game_day_for_date(play_date)}</b>"
     par_line = " · ".join(f"{l}-letter par {today_puzzle(l)['optimal_steps']}" for l in WORD_LENGTHS)
     if is_challenge_day():
-        par_line = f"😈 Wicked Wednesday — {par_line}"
+        par_line = f"😈 Hard Mode — {par_line}"
 
     activity = await get_group_activity(DB_PATH, chat_id, play_date)
     scored   = await get_group_scores(DB_PATH, chat_id, play_date)

@@ -41,8 +41,12 @@ Complete word-ladder engine:
   Accepts optional step range and seed — used by challenge mode without modifying this file.
 - `validate(current, guess, words)` — move validation
 
-### Challenge mode (Wicked Wednesday)
-Every Wednesday (or when `FORCE_CHALLENGE=true` in `.env`) the backend serves harder puzzles:
+### Challenge mode (Hard Mode)
+One deterministic-random day per ISO week (or when `FORCE_CHALLENGE=true` in
+`.env`) the backend serves harder puzzles. Day selection:
+`weekday == Random(f"hardmode-{iso_year}-{iso_week}").randrange(7)` — the
+`hardmode` salt is load-bearing (week 24/2026 had to land on Wednesday);
+do not change it.
 - **Word set**: regular connected component ∩ wordfreq top-N (`CHALLENGE_FREQ_TOP_N`,
   default 20k — avoids obscure words in long chains)
   → ~1,370 4L words, ~1,200 5L words (built at startup alongside regular sets)
@@ -51,7 +55,7 @@ Every Wednesday (or when `FORCE_CHALLENGE=true` in `.env`) the backend serves ha
 - **Seed**: `date.toordinal() + 100_000` (separate from regular puzzle seed)
 - **Validation**: still uses the full word set — players can step through any valid word
 - **Response**: `/puzzle` includes `is_challenge: bool` — frontend shows a red
-  "Wicked Wednesday" stamp on the lobby, red-tinted cards, and 😈 in the header
+  "Hard Mode" stamp on the lobby, red-tinted cards, and 😈 in the header
 - `FORCE_CHALLENGE=true` in `.env` lets you test on any day (backend restart required)
 
 ### backend/db.py — database layer
@@ -203,7 +207,7 @@ BACKEND_URL=http://localhost:7113
 CORS_ORIGIN=https://diddle.retard.zone
 PUZZLE_MIN_STEPS=4       # regular puzzle difficulty range
 PUZZLE_MAX_STEPS=7
-CHALLENGE_MIN_STEPS=9    # Wicked Wednesday difficulty range
+CHALLENGE_MIN_STEPS=9    # Hard Mode difficulty range
 CHALLENGE_MAX_STEPS=15
 CHALLENGE_FREQ_TOP_N=20000  # challenge word pool = regular ∩ wordfreq top-N
 DEV_SKIP_AUTH=false      # set true only for local testing (no Telegram)

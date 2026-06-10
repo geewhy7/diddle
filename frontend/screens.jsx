@@ -292,13 +292,13 @@ function LobbyScreen({ puzzles, played, onPlay, onLeaderboard, onShare }) {
   return (
     <div className="screen lobby">
       {isChallenge && (
-        <div className="challenge-stamp" aria-label="Wicked Wednesday — extra hard puzzles today">
-          Wicked<br />Wednesday
+        <div className="challenge-stamp" aria-label="Hard Mode — extra hard puzzles today">
+          Hard<br />Mode
         </div>
       )}
       <div className="lobby-day">Day {dayNum} — choose your puzzle</div>
       {isChallenge && (
-        <div className="challenge-note">today's ladders run deep — good luck 😈</div>
+        <div className="challenge-note">today's ladders run deep</div>
       )}
       <div className="lobby-cards">
         {[4, 5].map(len => puzzles[len] ? (

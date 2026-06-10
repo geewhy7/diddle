@@ -67,10 +67,15 @@ and identical for all players. **Do not modify this function.**
 
 ---
 
-## Challenge mode (Wicked Wednesday)
+## Challenge mode (Hard Mode)
 
-Every Wednesday — or any day when `FORCE_CHALLENGE=true` is set in `.env` —
-the backend serves harder puzzles:
+One random day each ISO week — players don't know which until it hits — the
+backend serves harder puzzles. The day is deterministic:
+`weekday == Random(f"hardmode-{iso_year}-{iso_week}").randrange(7)`, so backend
+restarts and clients always agree. The `hardmode` salt is load-bearing: it was
+chosen so week 24/2026 (the first Hard Mode week) landed on Wednesday — changing
+it re-rolls every week's day. `FORCE_CHALLENGE=true` in `.env` forces it on for
+testing.
 
 - **Word set**: regular connected component ∩ wordfreq top-N
   (`CHALLENGE_FREQ_TOP_N`, default 20k → ~1,370 4L / ~1,200 5L words),
@@ -83,7 +88,7 @@ the backend serves harder puzzles:
 - **Validation**: still uses the full regular word set, so players can step
   through any valid word
 - `GET /puzzle` includes `is_challenge: bool` for the frontend
-- **Frontend treatment**: a red "Wicked Wednesday" rubber stamp slams onto the
+- **Frontend treatment**: a red "Hard Mode" rubber stamp slams onto the
   lobby (tilted, double-ring border, `--stamp` ink color per theme), puzzle
   cards get a red-tinted border + red par, and the header shows 😈 in-game
 
@@ -368,7 +373,7 @@ Leading emoji: delta emoji of total-over-par once both puzzles are finished;
 ⏱️ while anything is unfinished; 💀 only if both were given up.
 Order: finished (sorted by gave-up count, then total delta), then in-progress,
 then gave-up. On challenge days the par line reads
-`😈 Wicked Wednesday — 4-letter par 10 · 5-letter par 12`.
+`😈 Hard Mode — 4-letter par 10 · 5-letter par 12`.
 
 **State is chat-agnostic**: `group_activity` only decides who appears on this
 chat's board; each player's segments are derived from their `scores` and
