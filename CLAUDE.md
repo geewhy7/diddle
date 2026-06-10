@@ -15,8 +15,13 @@ updates in real time as friends play.
   - FastAPI runs on port 7113. The tunnel points there. That's it.
 - **Bot token**: in `.env` as `TELEGRAM_TOKEN`
 - **Frontend**: served as static files by FastAPI at `/` — not a separate server
-- **Bot process**: runs in tmux session `clown` on the machine.
-  Kill/restart with: `tmux send-keys -t clown C-c ENTER && tmux send-keys -t clown "/usr/bin/python3 bot.py" ENTER`
+- **Bot process**: the diddle commands are served by the UNIFIED bot at
+  `/home/pi/py/bet/` (it absorbed the old `bot/bot.py` — same token, one
+  poller; diddle's handlers live in `/home/pi/py/bet/diddle_handlers.py`).
+  Runs in tmux session `clown`. Kill/restart with:
+  `tmux send-keys -t clown C-c ENTER && tmux send-keys -t clown "cd /home/pi/py/bet && venv/bin/python bot.py" ENTER`
+  **Never start a second bot process with this token — two pollers conflict
+  and Telegram kicks one off.**
 - **Backend service**: `sudo systemctl restart diddle-backend`
 - **DB_PATH** in `.env` is a relative path (`./diddle.db`) — it resolves to
   `backend/diddle.db` because the service runs with `WorkingDirectory=backend/`.
@@ -93,8 +98,10 @@ EPOCH = date(2026, 6, 7) for day 1. The current `game_day()` returns day number.
 Babel compiles JSX at runtime (no build step). Load order in `index.html` matters:
 `engine.js` → `components.jsx` → `screens.jsx` → `app.jsx`
 
-### bot/bot.py — slim bot
-Commands: `/play`, `/scores`, `/alltime`, `/help`
+### Bot commands — served by the unified bot in /home/pi/py/bet/
+Commands: `/play`, `/scores`, `/alltime`, `/help` — implemented in
+`/home/pi/py/bet/diddle_handlers.py` (this repo's `bot/` was retired when the
+two bots merged; the old code is in both repos' git history).
 
 `/play` in a group: calls backend `POST /group_message/post` with
 `play_url = {_mini_app_url}?startapp=g{abs(chat_id)}`. The backend deletes any
@@ -133,9 +140,9 @@ Telegram group chat
                             ├─ db.py          (aiosqlite)
                             └─ tg.py          (initData verification)
 
-bot/bot.py — separate process (tmux "clown")
-    └─ /play, /scores, /alltime, /help
-    └─ reads/writes group_messages table directly (same DB)
+unified bot — /home/pi/py/bet/ (tmux "clown", venv python)
+    └─ /play, /scores, /alltime, /help (diddle_handlers.py → backend HTTP)
+    └─ plus utility features: reminders, /dan, /plex, message logging
 ```
 
 ---
@@ -185,14 +192,11 @@ diddle/
 │   ├── screens.jsx            ← all screen components (Babel JSX)
 │   └── app.jsx                ← App root, all state machine (Babel JSX)
 │
-├── bot/
-│   ├── bot.py                 ← bot commands
-│   └── requirements.txt
-│
 └── deploy/
-    ├── diddle-backend.service ← systemd unit for uvicorn
-    └── diddle-bot.service     ← systemd unit for bot
+    └── diddle-backend.service ← systemd unit for uvicorn
 ```
+
+(The bot lives in `/home/pi/py/bet/` — separate repo, shared bot account.)
 
 ---
 
@@ -383,7 +387,8 @@ DB, so cross-device and corrupted-state scenarios resolve correctly.
 2. Imperative commit messages: `feat:`, `fix:`, `docs:` prefixes.
 3. Before any commit: confirm `.env` is NOT staged.
 4. Never force-push to main.
-5. The bot is in tmux "clown" — restart manually after bot.py changes.
+5. The unified bot is in tmux "clown" (code in `/home/pi/py/bet/`) — restart
+   manually after changes there.
 6. The backend is a systemd service — `sudo systemctl restart diddle-backend`.
 
 ---
@@ -399,10 +404,10 @@ sudo systemctl status diddle-backend
 cd backend
 uvicorn main:app --reload --port 7113
 
-# Bot (tmux session "clown")
+# Bot (unified, tmux session "clown")
 tmux attach -t clown
 # Ctrl-C to stop, then:
-/usr/bin/python3 bot.py
+cd /home/pi/py/bet && venv/bin/python bot.py
 
 # Health check
 curl https://diddle.retard.zone/health

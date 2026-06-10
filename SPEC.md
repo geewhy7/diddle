@@ -16,7 +16,8 @@ for everyone, compare moves-over-par with friends.
 - ✅ Mini App registered with BotFather under short name `diddle`
 - ✅ FastAPI backend serves both the API and the frontend static files
 - ✅ Backend runs as systemd service `diddle-backend`
-- ✅ Bot runs in tmux session `clown` (not systemd — restart manually)
+- ✅ Bot commands served by the unified bot in `/home/pi/py/bet/` (tmux
+  session `clown` — same bot account as the old standalone diddle bot)
 - ✅ SQLite DB at `backend/diddle.db`
 - ✅ Private GitHub repo at `git@github.com:gwisawesome/diddle.git`
 - ✅ EPOCH = 2026-06-07 (day 1)
@@ -396,9 +397,10 @@ never `web_app`, which is invalid in groups).
 | `/alltime` | All-time handicap standings (avg delta, completions only) |
 | `/help`    | Command list |
 
-Bot uses `python-telegram-bot v20` (async). Bot token verified via HMAC on every
-initData request. Bot calls backend API for `/leaderboard` and `/stats/alltime`;
-reads `group_messages` and `group_activity` tables directly via `db.py` import.
+Bot commands are implemented in `/home/pi/py/bet/diddle_handlers.py` (the
+unified bot, python-telegram-bot v21, async) as pure HTTP wrappers: `/play`
+hits `POST /group_message/post`, `/scores` and `/alltime` hit the leaderboard
+endpoints with `bot <token>` auth. The bot never touches diddle's DB directly.
 
 ---
 
@@ -415,9 +417,9 @@ previous word gets a slightly thicker coloured border. Computed by
 
 ## Open problems / next steps
 
-1. **Bot runs in tmux** — convert to systemd service for reliability. The service
-   file `deploy/diddle-bot.service` exists but the bot currently runs in tmux.
-   Needs a venv or system-python dependencies resolved first (aiosqlite, httpx).
+1. **Unified bot runs in tmux** — convert `/home/pi/py/bet/` to a systemd
+   service for reliability (it has its own venv, so the unit is trivial:
+   `ExecStart=/home/pi/py/bet/venv/bin/python bot.py`).
 
 2. **Stats distribution buckets cap at 6+ extra moves** — challenge-day
    deltas can blow well past that, so they all pile into the 6+ bucket.
