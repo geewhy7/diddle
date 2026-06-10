@@ -89,10 +89,12 @@ Babel compiles JSX at runtime (no build step). Load order in `index.html` matter
 ### bot/bot.py — slim bot
 Commands: `/play`, `/scores`, `/alltime`, `/help`
 
-`/play` in a group: checks DB for an existing daily message; if none, sends the
-initial board message and records the message_id. If already sent today, does nothing.
-Uses `url=_mini_app_url` (t.me link) — NOT `web_app=WebAppInfo` which is
-**private-chat only and will throw `Button_type_invalid` in groups**.
+`/play` in a group: calls backend `POST /group_message/post` with
+`play_url = {_mini_app_url}?startapp=g{abs(chat_id)}`. The backend deletes any
+existing board for today, sends a fresh one, and records (message_id, play_url).
+The bot then deletes the user's `/play` message. Buttons use `url=` (t.me link)
+— NOT `web_app=WebAppInfo` which is **private-chat only and will throw
+`Button_type_invalid` in groups**.
 
 `/play` in a DM: sends a plain button with the t.me link, no group tracking.
 
@@ -105,10 +107,9 @@ Telegram group chat
     │
     ├─ /play command
     │       │
-    │       └─ bot checks group_messages for today
-    │               ├─ exists → silent (one board per day)
-    │               └─ new → send board message + store message_id
-    │                         (url button → t.me/ClownCasinoBot/diddle)
+    │       └─ bot → POST /group_message/post (backend deletes old board,
+    │                 sends fresh one, stores message_id + play_url)
+    │                 url button → t.me/ClownCasinoBot/diddle?startapp=g<chat_id>
     │
     └─ user taps button → Telegram opens Mini App webview
                             │
@@ -231,9 +232,9 @@ keyboard = [[InlineKeyboardButton("Play Diddle 🎮", url=_mini_app_url)]]
 # where _mini_app_url = f"https://t.me/{bot_username}/{BOT_APP_NAME}"
 ```
 
-The `edit_group_message` helper in main.py does NOT pass `reply_markup` when
-calling `editMessageText` — Telegram preserves the existing button from the
-original message. Do not add a `web_app` button to `editMessageText` calls.
+The `edit_group_message` helper in main.py re-sends the stored `play_url` as a
+url button in `reply_markup` on every `editMessageText` call (editing text
+without reply_markup drops the button). Never use a `web_app` button here.
 
 ---
 
@@ -260,9 +261,21 @@ GET  /leaderboard?length=N  → [{name, moves, optimal, gave_up, word_length, av
      Auth: Authorization: tma <init_data>  OR  bot <token>
      avg is the player's all-time avg delta (None if < 3 days played).
 
-GET  /me              → [{word_length, moves, optimal, gave_up, delta, path}]
+GET  /me              → {scores: [{word_length, moves, optimal, gave_up,
+                          delta, path}], progress: [{word_length, path, chat_id}]}
      Auth: Authorization: tma <init_data>
-     Today's scores for the authenticated user. Used for startup sync.
+     Today's scores + in-progress paths for the user. Used for startup sync
+     and mid-puzzle resume.
+
+POST /progress        → {ok: true}
+     body: {init_data, path: [str], word_length: int, chat_id: int|null}
+     Auth: initData. Upserts in-progress path after each valid move;
+     refreshes the group board (live moves/optimal). Fire-and-forget.
+
+POST /group_message/post → {message_id}
+     body: {chat_id: int, play_url: str}
+     Auth: Authorization: bot <token>. Deletes today's old board message,
+     sends a fresh one with the Play button, records it in group_messages.
 
 GET  /stats?length=N  → {current_streak, longest_streak, total_played,
                            total_won, total_extra, distribution}
@@ -277,9 +290,9 @@ GET  /stats/alltime?length=N → {puzzle_difficulty, players: [{name, handicap, 
 ## Live group message board — how it works
 
 When `/play` is called in a group:
-1. Bot checks `group_messages` table for today's entry. If found → silent.
-2. If not found → sends initial message: `"Diddle — Day N 🔤\n\nNo one has played yet — be first!"`
-   Records `(chat_id, message_id, today)` in `group_messages`.
+1. Bot calls `POST /group_message/post` with the startapp-encoded play_url.
+2. Backend deletes today's old board (if any), sends a fresh board message,
+   and records `(chat_id, message_id, today, play_url)` in `group_messages`.
 
 When a user opens the Mini App:
 3. Frontend fires `POST /playing` (fire-and-forget).
@@ -302,13 +315,13 @@ Diddle — Day 2 🔤
 
 Emoji mapping: 🎯 par · ⭐ +1/+2 · 😂 +3/+4 · 🤡 +5+ · ⏱️ playing · 💀 gave up
 
-**Known limitation**: When the Mini App is opened via a t.me URL button in a
-group, `tg.initDataUnsafe.chat` is null (Telegram does not populate it for
-t.me links, only for attachment-menu opens). So `CHAT_ID` is null from the
-frontend and group_activity tracking does not fire for group plays. The board
-only updates if chat_id somehow reaches the frontend — this is an open problem.
-The likely solution is to encode chat_id via the `?startapp=` parameter in the
-t.me link and decode it via `tg.initDataUnsafe.start_param` on the frontend.
+**chat_id sourcing**: Telegram does not populate `tg.initDataUnsafe.chat` for
+t.me-link opens, so the chat_id rides in as `?startapp=g{abs(chat_id)}` and
+`app.jsx` decodes `tg.initDataUnsafe.start_param` back to the negative group
+id. Fallbacks: `?chat_id=` URL param (dev), then `initDataUnsafe.chat.id`.
+
+Playing users with a `progress` row show live as `⏱️ Name — 3/7`
+(moves so far / optimal) instead of just "playing...".
 
 ---
 

@@ -19,7 +19,7 @@ for everyone, compare moves-over-par with friends.
 - ✅ Bot runs in tmux session `clown` (not systemd — restart manually)
 - ✅ SQLite DB at `backend/diddle.db`
 - ✅ Private GitHub repo at `git@github.com:gwisawesome/diddle.git`
-- ✅ EPOCH = 2026-06-07 (day 1); today is day 2
+- ✅ EPOCH = 2026-06-07 (day 1)
 
 ---
 
@@ -27,15 +27,16 @@ for everyone, compare moves-over-par with friends.
 
 ### Journey 1 — Playing in a group
 1. User (or anyone) sends `/play` in a group
-2. Bot checks `group_messages` — if today's board already exists, does nothing
-3. If new day: bot sends the board message + **[Play Diddle 🎮]** button
-4. User taps → Telegram opens `https://diddle.retard.zone` in a webview
-5. Lobby shows two cards: **4L** and **5L** puzzles (par steps, start → target)
-6. User taps a card → zooms into the game for that length
-7. User types guesses; path builds up; changed letter is highlighted
-8. On completion: score screen with path replay, then back to lobby
-9. Share button on lobby → copies text summary to clipboard
-10. Group board message updates in real time (⏱️ playing → 🎯/⭐/😂/🤡/💀)
+2. Bot calls backend `POST /group_message/post`; backend deletes any existing
+   board for today and sends a fresh one with the **[Play Diddle 🎮]** button
+   (`t.me/<bot>/diddle?startapp=g<abs(chat_id)>`), then deletes the `/play` command message
+3. User taps → Telegram opens `https://diddle.retard.zone` in a webview
+4. Lobby shows two cards: **4L** and **5L** puzzles (par steps, start → target)
+5. User taps a card → zooms into the game for that length
+6. User types guesses; path builds up; changed letter is highlighted
+7. On completion: score screen with path replay, then back to lobby
+8. Share button on lobby → copies text summary to clipboard
+9. Group board message updates in real time (⏱️ playing → 🎯/⭐/😂/🤡/💀)
 
 ### Journey 2 — Bot commands
 - `/scores` → today's leaderboard (all players, both lengths)
@@ -63,6 +64,22 @@ game_day = (date.today() - EPOCH).days + 1
 
 `pick_puzzle` in `game.py` uses `date.today()` as the random seed — deterministic
 and identical for all players. **Do not modify this function.**
+
+---
+
+## Challenge mode (Wacky Wednesday)
+
+Every Wednesday — or any day when `FORCE_CHALLENGE=true` is set in `.env` —
+the backend serves harder puzzles:
+
+- **Word set**: regular connected component ∩ wordfreq top-20k
+  (~1,370 4L / ~1,200 5L words), built at startup alongside the regular sets
+- **Difficulty**: `min_steps=9, max_steps=15` (vs 4–7 normal);
+  falls back to 6–12 if no qualifying pair exists
+- **Seed**: `date.toordinal() + 100_000` — independent of the regular seed
+- **Validation**: still uses the full regular word set, so players can step
+  through any valid word
+- `GET /puzzle` includes `is_challenge: bool` for the frontend
 
 ---
 
@@ -113,7 +130,18 @@ CREATE TABLE group_messages (
     chat_id     INTEGER NOT NULL,
     message_id  INTEGER NOT NULL,
     play_date   TEXT NOT NULL,
+    play_url    TEXT,                -- t.me link incl. ?startapp= chat encoding
     PRIMARY KEY (chat_id, play_date)
+);
+
+CREATE TABLE progress (
+    user_id      INTEGER NOT NULL,
+    play_date    TEXT NOT NULL,
+    word_length  INTEGER NOT NULL,
+    path         TEXT NOT NULL DEFAULT '[]',  -- JSON array of words so far
+    chat_id      INTEGER,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, play_date, word_length)
 );
 
 CREATE TABLE group_activity (
@@ -144,7 +172,8 @@ Status progression rules in `upsert_group_activity`:
 ### GET /puzzle?length=4|5
 No auth. Same response for everyone on a given day.
 ```json
-{ "start": "bale", "end": "core", "optimal_steps": 4, "day": 2, "word_length": 4 }
+{ "start": "bale", "end": "core", "optimal_steps": 4, "day": 2,
+  "word_length": 4, "is_challenge": false }
 ```
 
 ### GET /words?length=4|5
@@ -160,6 +189,18 @@ Auth: initData in body. Fire-and-forget from frontend.
 ```
 Upserts `group_activity` as 'playing', then calls `edit_group_message`.
 chat_id is optional; if null, does nothing for group tracking.
+
+### POST /progress
+Auth: initData in body. Fired after every valid (non-winning) move.
+```json
+// Request
+{ "init_data": "...", "path": ["bale", "bare"], "word_length": 4,
+  "chat_id": -1001234567890 }
+// Response
+{ "ok": true }
+```
+Upserts the `progress` row; if chat_id is set, refreshes the group board so
+playing users show live `moves/optimal`. The row is deleted on score submit.
 
 ### POST /score
 Auth: initData in body. Backend re-validates the entire path.
@@ -188,14 +229,18 @@ After saving: upserts `group_activity` ('done' or 'gaveup'), calls `edit_group_m
 
 ### GET /me
 Auth: `Authorization: tma <init_data>`
-Returns today's scores for the authenticated user (startup sync).
+Returns today's scores + in-progress paths for the authenticated user
+(startup sync; progress lets a reload resume mid-puzzle).
 ```json
-[
-  { "word_length": 4, "moves": 3, "optimal": 3, "gave_up": false, "delta": 0,
-    "path": ["bale","bare","care","core"] },
-  { "word_length": 5, "moves": 6, "optimal": 4, "gave_up": false, "delta": 2,
-    "path": ["bakes","bikes","pikes","pokes","pores","cores"] }
-]
+{
+  "scores": [
+    { "word_length": 4, "moves": 3, "optimal": 3, "gave_up": false, "delta": 0,
+      "path": ["bale","bare","care","core"] }
+  ],
+  "progress": [
+    { "word_length": 5, "path": ["bakes","bikes"], "chat_id": null }
+  ]
+}
 ```
 
 ### GET /leaderboard?length=4|5
@@ -228,6 +273,17 @@ Auth: `Authorization: tma <init_data>` OR `bot <token>`
   ]
 }
 ```
+
+### POST /group_message/post
+Auth: `Authorization: bot <token>` only — called by the bot on group `/play`.
+```json
+// Request
+{ "chat_id": -1001234567890, "play_url": "https://t.me/ClownCasinoBot/diddle?startapp=g1001234567890" }
+// Response
+{ "message_id": 123 }
+```
+Deletes today's existing board message (if any), sends a fresh one with the
+Play button, and records `(chat_id, message_id, play_date, play_url)`.
 
 ---
 
@@ -266,18 +322,19 @@ Server is authoritative: `GET /me` at startup overwrites `localStorage` with
 DB truth. This handles cross-device, corrupted state, and duplicate submissions.
 
 ### CHAT_ID sourcing
+Telegram does not populate `initDataUnsafe.chat` for t.me-link opens, so the
+group's chat_id is smuggled through the `startapp` parameter instead. The bot
+builds the Play button URL as `t.me/<bot>/diddle?startapp=g{abs(chat_id)}`
+(groups/supergroups always have negative ids, so the sign is restored on
+decode). Resolution order in `app.jsx`:
 ```js
-const _urlChatId = new URLSearchParams(window.location.search).get('chat_id');
-const CHAT_ID = _urlChatId
-  ? parseInt(_urlChatId, 10)
-  : (tg?.initDataUnsafe?.chat?.id ?? null);
+const _urlChatId   = new URLSearchParams(window.location.search).get('chat_id');
+const _startParam  = tg?.initDataUnsafe?.start_param ?? '';
+const _startChatId = _startParam.startsWith('g') ? -(parseInt(_startParam.slice(1), 10)) : null;
+const CHAT_ID      = _urlChatId   ? parseInt(_urlChatId, 10)
+                   : _startChatId ? _startChatId
+                   : (tg?.initDataUnsafe?.chat?.id ?? null);
 ```
-**Known issue**: When opened via t.me URL button, Telegram does not populate
-`initDataUnsafe.chat`, and there is no `?chat_id=` in the URL (t.me links don't
-pass query params into the Mini App). So `CHAT_ID` is null for group plays
-and group activity tracking does not work. Fix: encode chat_id via
-`?startapp=g{abs(chat_id)}` in the t.me URL and decode via
-`tg.initDataUnsafe.start_param` on the frontend.
 
 ---
 
@@ -295,7 +352,9 @@ Diddle — Day 2 🔤
 Order: done (sorted by total moves-over-par ascending), then playing, then gaveup.
 `build_group_message(chat_id, play_date)` in `main.py` assembles this.
 `edit_group_message(chat_id, play_date)` calls Telegram's API via httpx.
-The reply_markup (Play button) is NOT re-sent on edits — Telegram preserves it.
+Edits re-send the stored `play_url` button as `reply_markup` (a url button —
+never `web_app`, which is invalid in groups). Playing users with live progress
+show as `⏱️ Name — 3/7` (moves so far / optimal).
 
 ---
 
@@ -303,7 +362,7 @@ The reply_markup (Play button) is NOT re-sent on edits — Telegram preserves it
 
 | Command    | Behaviour |
 |------------|-----------|
-| `/play`    | Group: post daily board (once per day, subsequent calls silent). DM: send Mini App link. |
+| `/play`    | Group: re-post today's board via backend (deletes the old board + the `/play` message). DM: send Mini App link. |
 | `/scores`  | Today's leaderboard across all players, both puzzle lengths |
 | `/alltime` | All-time handicap standings (avg delta, completions only) |
 | `/help`    | Command list |
@@ -327,15 +386,10 @@ previous word gets a slightly thicker coloured border. Computed by
 
 ## Open problems / next steps
 
-1. **Group chat_id not reaching frontend** — see "CHAT_ID sourcing" above.
-   The fix is `?startapp=g{abs(chat_id)}` in the t.me link + frontend decode.
-   This would make the live board actually work end-to-end.
-
-2. **Bot runs in tmux** — convert to systemd service for reliability. The service
+1. **Bot runs in tmux** — convert to systemd service for reliability. The service
    file `deploy/diddle-bot.service` exists but the bot currently runs in tmux.
    Needs a venv or system-python dependencies resolved first (aiosqlite, httpx).
 
-3. **word_ladder_bot.py** — legacy file in root, never used, safe to delete.
-
-4. **Diddle.html / ios-frame.jsx / tweaks-panel.jsx** in frontend/ — design-tool
-   artifacts, not served in production but clutter the directory.
+2. **Challenge mode has no frontend treatment** — `/puzzle` returns
+   `is_challenge` but the UI doesn't surface it (no banner/badge), and the
+   stats distribution buckets cap at 6+ extra moves.
