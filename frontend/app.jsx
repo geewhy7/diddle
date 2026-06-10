@@ -496,7 +496,7 @@ function App() {
         shake={shake}
         committing={committing}
         promoteIndex={promoteIndex}
-        bounce={bounce}
+        celebrating={bounce}
         onGiveUp={handleGiveUp}
       />
     );

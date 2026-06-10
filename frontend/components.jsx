@@ -56,6 +56,45 @@ function ChainRow({ word, target, step, isWin, promote, prev }) {
   );
 }
 
+// on-screen QWERTY keyboard — replaces the OS keyboard so the layout never
+// shifts. ENTER lights up (accent color) once the input reaches full length.
+const KB_ROWS = [
+  ["Q","W","E","R","T","Y","U","I","O","P"],
+  ["A","S","D","F","G","H","J","K","L"],
+  ["ENTER","Z","X","C","V","B","N","M","BACK"],
+];
+
+function Keyboard({ onKey, disabled, enterReady }) {
+  const press = (k) => (e) => {
+    e.preventDefault();
+    if (disabled) return;
+    window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light");
+    onKey(k);
+  };
+  return (
+    <div className={"kb" + (disabled ? " disabled" : "")}>
+      {KB_ROWS.map((row, ri) => (
+        <div className="kb-row" key={ri}>
+          {row.map((k) => (
+            <button
+              key={k}
+              type="button"
+              tabIndex={-1}
+              className={"kb-key"
+                + (k === "ENTER" ? " wide enter" + (enterReady ? " ready" : "") : "")
+                + (k === "BACK" ? " wide" : "")}
+              onPointerDown={press(k)}
+              aria-label={k === "BACK" ? "Delete letter" : k === "ENTER" ? "Submit word" : k}
+            >
+              {k === "BACK" ? "⌫" : k}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // compact replay used on finished / gave-up / result screens
 function Replay({ title, path, target, optimal = false }) {
   return (
@@ -78,4 +117,4 @@ function Replay({ title, path, target, optimal = false }) {
   );
 }
 
-Object.assign(window, { Mark, Wordmark, Tiles, ChainRow, Replay });
+Object.assign(window, { Mark, Wordmark, Tiles, ChainRow, Replay, Keyboard });

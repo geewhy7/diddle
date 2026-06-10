@@ -187,19 +187,12 @@ body {
 .counter .k { display: block; font-size: 9.5px; letter-spacing: .6px; text-transform: uppercase; color: var(--tg-theme-hint-color); }
 .counter.best .n { color: var(--hl); }
 
-/* ---------- input bar ---------- */
-/* ---------- locked entry row + invisible capture input ---------- */
+/* ---------- entry row (fed by the on-screen keyboard, no OS input) ---------- */
 .entry-zone {
   flex: 0 0 auto; position: relative;
   padding: 9px 16px 7px;
   border-top: 1px solid var(--hairline);
   background: var(--tg-theme-bg-color);
-}
-.entry-capture {
-  position: absolute; inset: 0; z-index: 3;
-  opacity: 0; border: none; background: transparent; color: transparent;
-  caret-color: transparent; font-size: 16px; cursor: text;
-  width: 100%; height: 100%;
 }
 .row.entry { position: relative; z-index: 1; }
 .tile.slot { color: transparent; }
@@ -216,8 +209,41 @@ body {
   flex: 0 0 auto;
   background: none; border: none; color: var(--tg-theme-hint-color);
   font-family: var(--mono); font-size: 12px; text-decoration: underline; cursor: pointer;
-  align-self: center; padding: 6px 4px 22px;
+  align-self: center; padding: 8px 4px 6px;
 }
+.giveup-link.confirm { color: #e0564f; font-weight: 700; }
+.app[data-theme="dark"] .giveup-link.confirm { color: #ff7b72; }
+
+/* ---------- on-screen keyboard ---------- */
+.kb {
+  flex: 0 0 auto;
+  width: 100%; max-width: 480px; margin: 0 auto;
+  padding: 6px 6px 14px;
+  user-select: none; -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.kb-row { display: flex; justify-content: center; gap: 5px; margin-bottom: 6px; }
+.kb-row:last-child { margin-bottom: 0; }
+.kb-key {
+  flex: 1 1 0; max-width: 38px; height: 48px;
+  border: 1px solid var(--hairline); border-radius: 8px;
+  background: var(--tg-theme-secondary-bg-color);
+  color: var(--tg-theme-text-color);
+  font-family: var(--mono); font-size: 16px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.kb-key:active {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 35%, var(--tg-theme-secondary-bg-color));
+  transform: translateY(1px);
+}
+.kb-key.wide { flex: 1.6 1 0; max-width: 62px; font-size: 18px; }
+.kb-key.enter { font-size: 10.5px; letter-spacing: .5px; }
+.kb-key.enter.ready {
+  background: var(--hl); border-color: var(--hl); color: var(--hl-text);
+}
+.kb.disabled .kb-key { opacity: .45; pointer-events: none; }
 
 /* commit: the whole history stack rises by exactly one row, smoothly and together
    (cancels the instant bottom-stick shift, so old rows don't jerk) */

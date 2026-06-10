@@ -1,5 +1,5 @@
 /* Diddle — the five screens. Each is a pure component driven by App state. */
-const { Tiles, ChainRow, Replay, Wordmark, Mark } = window;
+const { Tiles, ChainRow, Replay, Wordmark, Mark, Keyboard } = window;
 
 function LoadingScreen() {
   return (
@@ -25,17 +25,13 @@ function ErrorScreen({ message, onRetry }) {
   );
 }
 
-function PlayingScreen({ puzzle, path, input, setInput, onSubmit, hint, shake, committing, promoteIndex, bounce, onGiveUp }) {
-  const inputRef = React.useRef(null);
+function PlayingScreen({ puzzle, path, input, setInput, onSubmit, hint, shake, committing, promoteIndex, celebrating, onGiveUp }) {
   const historyRef = React.useRef(null);
   const len = puzzle.length;
   const last = path[path.length - 1];
   const moves = path.length - 1;
   const best = puzzle.bestFromHere(last);
 
-  const focusInput = () => { const el = inputRef.current; if (el && !committing) el.focus(); };
-  React.useEffect(() => { focusInput(); }, []);
-  React.useEffect(() => { if (!committing) focusInput(); }, [committing]);
   React.useEffect(() => {
     const el = historyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -57,8 +53,40 @@ function PlayingScreen({ puzzle, path, input, setInput, onSubmit, hint, shake, c
     return () => clearTimeout(id);
   }, [promoteIndex]);
 
-  const handleKey = (e) => { if (e.key === "Enter") { e.preventDefault(); onSubmit(); } };
   const clean = (v) => v.replace(/[^a-zA-Z]/g, "").slice(0, len).toUpperCase();
+
+  const keyLocked = !!committing || !!celebrating;
+  const handleVKey = (k) => {
+    if (keyLocked) return;
+    if (k === "ENTER") onSubmit();
+    else if (k === "BACK") setInput(input.slice(0, -1));
+    else setInput(clean(input + k));
+  };
+
+  // physical keyboard support (Telegram Desktop / web). No deps array on
+  // purpose: handleVKey closes over input/committing, so re-attach per render.
+  React.useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Enter") handleVKey("ENTER");
+      else if (e.key === "Backspace") handleVKey("BACK");
+      else if (/^[a-zA-Z]$/.test(e.key)) handleVKey(e.key.toUpperCase());
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  // give up needs a second tap to confirm — it sits near the keyboard
+  const [confirmGiveUp, setConfirmGiveUp] = React.useState(false);
+  React.useEffect(() => {
+    if (!confirmGiveUp) return;
+    const id = setTimeout(() => setConfirmGiveUp(false), 2500);
+    return () => clearTimeout(id);
+  }, [confirmGiveUp]);
+  const handleGiveUpTap = () => {
+    if (confirmGiveUp) onGiveUp();
+    else setConfirmGiveUp(true);
+  };
 
   const entryWord = committing ? committing.word : input;
   const entryTarget = committing ? puzzle.target : null;
@@ -66,7 +94,7 @@ function PlayingScreen({ puzzle, path, input, setInput, onSubmit, hint, shake, c
 
   return (
     <div className="screen playing">
-      <div className={"playstack" + (bounce ? " bounce" : "")}>
+      <div className="playstack">
         <div className="history" ref={historyRef}>
           {path.map((w, i) => (
             <ChainRow key={i} word={w} target={puzzle.target} step={i}
@@ -75,27 +103,13 @@ function PlayingScreen({ puzzle, path, input, setInput, onSubmit, hint, shake, c
           ))}
         </div>
 
-        <div className="entry-zone" onMouseDown={(e) => { if (e.target.tagName !== "INPUT") { e.preventDefault(); focusInput(); } }}>
+        <div className="entry-zone">
           <div className={"row entry cur" + (shake ? " shake" : "")}>
             <div className="gutter">{path.length}</div>
             <Tiles word={entryWord} len={len} target={entryTarget}
               entry={!committing} flip={!!committing}
               activeIndex={activeIndex} />
           </div>
-          <input
-            ref={inputRef}
-            className="entry-capture"
-            value={input}
-            onChange={(e) => setInput(clean(e.target.value))}
-            onKeyDown={handleKey}
-            inputMode="text"
-            autoCapitalize="characters"
-            autoCorrect="off"
-            spellCheck="false"
-            maxLength={len}
-            disabled={!!committing}
-            aria-label="Type your next word"
-          />
           <div className={"hint-line" + (hint && hint.err ? " err" : "")}>
             {hint ? hint.text : (committing ? "\u00a0" : `change one letter of ${last}`)}
           </div>
@@ -119,7 +133,11 @@ function PlayingScreen({ puzzle, path, input, setInput, onSubmit, hint, shake, c
         </div>
       </div>
 
-      <button className="giveup-link" onClick={onGiveUp}>give up &amp; see the answer</button>
+      <button className={"giveup-link" + (confirmGiveUp ? " confirm" : "")} onClick={handleGiveUpTap}>
+        {confirmGiveUp ? "tap again to give up" : "give up & see the answer"}
+      </button>
+
+      <Keyboard onKey={handleVKey} disabled={keyLocked} enterReady={input.length === len} />
     </div>
   );
 }
