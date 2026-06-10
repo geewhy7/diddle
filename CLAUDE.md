@@ -317,17 +317,23 @@ When a user submits a score:
 6. `POST /score` upserts `group_activity` status='done' (win) or 'gaveup'.
 7. `edit_group_message` updates the board.
 
-Board format:
+Board format (HTML parse mode, names bolded + escaped; puzzle words never shown):
 ```
-Diddle — Day 2 🔤
+🔤 Diddle #3
+4-letter par 4 · 5-letter par 6
 
-🎯 Karl — 4L perfect · 5L +2
-😂 Dan — 4L +3
-⏱️ Greg — playing...
+🎯 Karl — 4L par · 5L +2
+⏱️ Greg — 4L 🟩🟩⬜⬜ 2/4 · 5L +1
 💀 Thomas — gave up
 ```
 
-Emoji mapping: 🎯 par · ⭐ +1/+2 · 😂 +3/+4 · 🤡 +5+ · ⏱️ playing · 💀 gave up
+One segment per puzzle length per player: solved `4L par`/`4L +2`, gave up
+`4L 💀`, in progress = lock-squares of current word vs target + `moves/par`,
+not started = omitted ("warming up…" if no segments at all). Player state is
+**chat-agnostic** (derived from scores/progress by user_id+date); group_activity
+only decides who appears on this chat's board.
+
+Emoji mapping: 🎯 par · ⭐ +1/+2 · 😂 +3/+4 · 🤡 +5+ · ⏱️ unfinished · 💀 gave up
 
 **chat_id sourcing**: Telegram does not populate `tg.initDataUnsafe.chat` for
 t.me-link opens, so the chat_id rides in as `?startapp=g{abs(chat_id)}` and

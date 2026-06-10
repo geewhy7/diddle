@@ -346,21 +346,39 @@ const CHAT_ID      = _urlChatId   ? parseInt(_urlChatId, 10)
 
 ## Live group board — message format
 
-```
-Diddle — Day 2 🔤
+HTML parse mode (bold names, escaped). Puzzle words are never shown — only pars.
 
-🎯 Karl — 4L perfect · 5L +2
-⭐ Dan — 4L +1
-⏱️ Greg — playing...
+```
+🔤 Diddle #3
+4-letter par 4 · 5-letter par 6
+
+🎯 Karl — 4L par · 5L +2
+😂 Eve — 4L +3 · 5L 💀
+⏱️ Greg — 4L 🟩🟩⬜⬜ 2/4 · 5L +1
+⏱️ Dan — warming up…
 💀 Thomas — gave up
 ```
 
-Order: done (sorted by total moves-over-par ascending), then playing, then gaveup.
+Per-player line = one segment per puzzle length:
+- solved: `4L par` / `4L +2` · gave up: `4L 💀` · not started: omitted
+- in progress: lock-squares of the current word vs the target (🟩 letter in
+  place) + `moves/par` — e.g. `4L 🟩🟩⬜⬜ 2/4`, updated live on each move
+
+Leading emoji: delta emoji of total-over-par once both puzzles are finished;
+⏱️ while anything is unfinished; 💀 only if both were given up.
+Order: finished (sorted by gave-up count, then total delta), then in-progress,
+then gave-up. On challenge days the par line reads
+`😈 Wicked Wednesday — 4-letter par 10 · 5-letter par 12`.
+
+**State is chat-agnostic**: `group_activity` only decides who appears on this
+chat's board; each player's segments are derived from their `scores` and
+`progress` rows by user_id+date. Solving in one chat then opening the app from
+another chat shows the finished result, not "playing".
+
 `build_group_message(chat_id, play_date)` in `main.py` assembles this.
 `edit_group_message(chat_id, play_date)` calls Telegram's API via httpx.
 Edits re-send the stored `play_url` button as `reply_markup` (a url button —
-never `web_app`, which is invalid in groups). Playing users with live progress
-show as `⏱️ Name — 3/7` (moves so far / optimal).
+never `web_app`, which is invalid in groups).
 
 ---
 

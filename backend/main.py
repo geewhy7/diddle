@@ -1,3 +1,4 @@
+import html
 import logging
 import os
 import sys
@@ -209,61 +210,85 @@ def _game_day_for_date(play_date: str) -> int:
     return (date.fromisoformat(play_date) - EPOCH).days + 1
 
 
+def _lock_squares(word: str, target: str) -> str:
+    """Current word rendered as locked-letter squares vs the target."""
+    return "".join("🟩" if a == b else "⬜" for a, b in zip(word, target))
+
+
 async def build_group_message(chat_id: int, play_date: str) -> str:
-    header = f"Diddle — Day {_game_day_for_date(play_date)} 🔤"
+    """
+    Live board (HTML parse mode). group_activity decides WHO is on the board
+    for this chat; each player's state is derived from their scores and
+    progress by user_id+date — never per-chat — so playing in a new chat
+    after solving still shows the result.
+    """
+    header   = f"🔤 <b>Diddle #{_game_day_for_date(play_date)}</b>"
+    par_line = " · ".join(f"{l}-letter par {today_puzzle(l)['optimal_steps']}" for l in WORD_LENGTHS)
+    if is_challenge_day():
+        par_line = f"😈 Wicked Wednesday — {par_line}"
+
     activity = await get_group_activity(DB_PATH, chat_id, play_date)
     scored   = await get_group_scores(DB_PATH, chat_id, play_date)
 
-    # Merge: group_activity is primary; scored users fill gaps (pre-fix or missed /playing)
-    merged: dict[int, dict] = {a["user_id"]: a for a in activity}
+    # Who's on the board: activity is primary; scored users fill gaps
+    members: dict[int, str] = {a["user_id"]: a["display_name"] for a in activity}
     for s in scored:
-        if s["user_id"] not in merged:
-            merged[s["user_id"]] = s
+        members.setdefault(s["user_id"], s["display_name"])
 
-    if not merged:
-        return f"{header}\n\nNo one has played yet — be first!"
+    if not members:
+        return f"{header}\n{par_line}\n\nNo one has played yet — be first!"
 
-    # Collect done rows with their scores for sorting
-    done_rows: list[tuple[int, str, list[dict]]] = []
-    for uid, a in merged.items():
-        if a["status"] != "done":
-            continue
+    # Live progress per (user, length) — unique by PK, chat-agnostic
+    progress: dict[tuple[int, int], list] = {}
+    for p in await get_progress_for_users(DB_PATH, list(members), play_date):
+        progress[(p["user_id"], p["word_length"])] = p["path"]
+
+    done_rows:    list[tuple[tuple, str]] = []   # (sort_key, line)
+    playing_rows: list[str] = []
+    gaveup_rows:  list[str] = []
+
+    for uid, raw_name in members.items():
+        name   = html.escape(raw_name)
         scores = await get_user_today_scores(DB_PATH, uid, play_date)
-        completed = [s for s in scores if not s["gave_up"]]
-        total_delta = sum(s["delta"] for s in completed if s["delta"] is not None)
-        done_rows.append((total_delta, a["display_name"], completed))
-    done_rows.sort(key=lambda x: x[0])
+        by_len = {s["word_length"]: s for s in scores}
 
-    playing_rows = [a for a in merged.values() if a["status"] == "playing"]
-    gaveup_rows  = [a for a in merged.values() if a["status"] == "gaveup"]
+        segments = []
+        for length in WORD_LENGTHS:
+            s = by_len.get(length)
+            if s:
+                if s["gave_up"]:
+                    segments.append(f"{length}L 💀")
+                elif s["delta"] == 0:
+                    segments.append(f"{length}L par")
+                else:
+                    segments.append(f"{length}L +{s['delta']}")
+            else:
+                path = progress.get((uid, length))
+                if path and len(path) > 1:
+                    puz = today_puzzle(length)
+                    segments.append(
+                        f"{length}L {_lock_squares(path[-1], puz['end'])} "
+                        f"{len(path) - 1}/{puz['optimal_steps']}"
+                    )
 
-    # Fetch live progress for playing users so we can show moves/optimal
-    progress_by_uid: dict[int, dict] = {}
-    if playing_rows:
-        playing_uids = [a["user_id"] for a in playing_rows]
-        for p in await get_progress_for_users(DB_PATH, playing_uids, play_date):
-            uid = p["user_id"]
-            if uid not in progress_by_uid or p["updated_at"] > progress_by_uid[uid]["updated_at"]:
-                progress_by_uid[uid] = p
-
-    lines = [header, ""]
-    for total_delta, name, completed in done_rows:
-        parts = []
-        for s in sorted(completed, key=lambda x: x["word_length"]):
-            label = "perfect" if s["delta"] == 0 else f"+{s['delta']}"
-            parts.append(f"{s['word_length']}L {label}")
-        lines.append(f"{_delta_emoji(total_delta)} {name} — {' · '.join(parts)}")
-    for a in playing_rows:
-        prog = progress_by_uid.get(a["user_id"])
-        if prog and len(prog["path"]) > 1:
-            moves_so_far = len(prog["path"]) - 1
-            optimal = today_puzzle(prog["word_length"])["optimal_steps"]
-            lines.append(f"⏱️ {a['display_name']} — {moves_so_far}/{optimal}")
+        if len(by_len) == len(WORD_LENGTHS):
+            # Finished everything (solved or gave up)
+            completed = [s for s in scores if not s["gave_up"]]
+            if not completed:
+                gaveup_rows.append(f"💀 <b>{name}</b> — gave up")
+            else:
+                total_delta = sum(s["delta"] for s in completed)
+                gaveups     = len(scores) - len(completed)
+                line = f"{_delta_emoji(total_delta)} <b>{name}</b> — {' · '.join(segments)}"
+                done_rows.append(((gaveups, total_delta), line))
         else:
-            lines.append(f"⏱️ {a['display_name']} — playing...")
-    for a in gaveup_rows:
-        lines.append(f"💀 {a['display_name']} — gave up")
+            playing_rows.append(f"⏱️ <b>{name}</b> — {' · '.join(segments) or 'warming up…'}")
 
+    done_rows.sort(key=lambda x: x[0])
+    lines = [header, par_line, ""]
+    lines += [line for _, line in done_rows]
+    lines += playing_rows
+    lines += gaveup_rows
     return "\n".join(lines)
 
 
@@ -276,6 +301,7 @@ async def edit_group_message(chat_id: int, play_date: str) -> None:
         "chat_id":    chat_id,
         "message_id": row["message_id"],
         "text":       text,
+        "parse_mode": "HTML",
     }
     if row.get("play_url"):
         payload["reply_markup"] = {"inline_keyboard": [[{"text": "Play Diddle 🎮", "url": row["play_url"]}]]}
@@ -328,7 +354,7 @@ async def post_group_message(
     async with httpx.AsyncClient() as client:
         r = await client.post(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            json={"chat_id": req.chat_id, "text": text, "reply_markup": keyboard},
+            json={"chat_id": req.chat_id, "text": text, "parse_mode": "HTML", "reply_markup": keyboard},
             timeout=10.0,
         )
 
