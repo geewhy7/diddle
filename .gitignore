@@ -1,0 +1,22 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Databases / runtime data
+*.db
+*.db-journal
+*.db.bak
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

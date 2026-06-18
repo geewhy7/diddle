@@ -1,0 +1,12 @@
+# Backend (Python 3.11+)
+fastapi
+uvicorn[standard]
+aiosqlite
+httpx>=0.28
+python-dotenv>=1.0
+wordfreq                # word-frequency lists for puzzle/par word pools
+playwright              # headless Chromium for the rendered leaderboard image
+                        # after install: playwright install chromium
+
+# Dev / tests
+pytest
