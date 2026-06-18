@@ -1,0 +1,745 @@
+/* Diddle — styles for the Telegram Mini App prototype.
+   Three visual directions (data-dir = quiet | ladder | bold),
+   four highlight styles (data-hl), light/dark Telegram themes (data-theme),
+   and motion buckets (data-motion). The .app element carries all of them. */
+
+/* ---------- preview surround ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: #d8dadf;
+  background-image: radial-gradient(circle at 50% 0%, #e6e8ec, #cfd2d8 70%);
+  min-height: 100%;
+  font-family: -apple-system, system-ui, sans-serif;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 40px 16px 80px;
+}
+#root { display: flex; justify-content: center; }
+
+/* ---------- Telegram theme tokens ---------- */
+.app[data-theme="light"] {
+  --tg-theme-bg-color: #ffffff;
+  --tg-theme-secondary-bg-color: #f2f3f5;
+  --tg-theme-text-color: #16191c;
+  --tg-theme-hint-color: #9aa3ad;
+  --tg-theme-link-color: #2481cc;
+  --tg-theme-button-color: #2f8fda;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-header-bg-color: #ffffff;
+  --acc-green: #1ba35e;
+  --acc-green-soft: color-mix(in srgb, var(--acc-green) 13%, #fff);
+  --acc-changed: #e08a1e;
+  --hairline: rgba(20,25,30,0.10);
+  --tile-empty: rgba(20,25,30,0.04);
+  --stamp: #c8332e;
+}
+.app[data-theme="dark"] {
+  --tg-theme-bg-color: #17212b;
+  --tg-theme-secondary-bg-color: #232e3c;
+  --tg-theme-text-color: #ffffff;
+  --tg-theme-hint-color: #6d7e8f;
+  --tg-theme-link-color: #62bcf9;
+  --tg-theme-button-color: #4ea4eb;
+  --tg-theme-button-text-color: #ffffff;
+  --tg-theme-header-bg-color: #17212b;
+  --acc-green: #3ddc84;
+  --acc-green-soft: color-mix(in srgb, var(--acc-green) 18%, transparent);
+  --acc-changed: #f7c14b;
+  --hairline: rgba(255,255,255,0.10);
+  --tile-empty: rgba(255,255,255,0.05);
+  --stamp: #ff6056;
+}
+
+/* ---------- app shell ---------- */
+.app {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  font-family: -apple-system, system-ui, sans-serif;
+  overflow: hidden;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+/* highlight color = Telegram button color; green is reserved for success */
+.app { --hl: var(--tg-theme-button-color); --hl-text: var(--tg-theme-button-text-color); }
+
+/* ---------- Telegram header chrome ---------- */
+.tg-header {
+  flex: 0 0 auto;
+  padding: 52px 16px 10px;
+  display: flex; align-items: center; gap: 10px;
+  background: var(--tg-theme-header-bg-color);
+  border-bottom: 1px solid var(--hairline);
+  position: relative; z-index: 5;
+}
+.mark {
+  width: 26px; height: 26px; border-radius: 7px;
+  background: var(--tg-theme-secondary-bg-color);
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  gap: 2px; padding: 3px; flex: 0 0 auto;
+}
+.mark i { border-radius: 2px; background: var(--tg-theme-hint-color); opacity: .55; }
+.mark i.on { background: var(--hl); opacity: 1; }
+.wordmark {
+  font-family: var(--mono);
+  font-weight: 700; font-size: 17px; letter-spacing: 0.5px;
+  color: var(--tg-theme-text-color);
+}
+.wordmark .dot { color: var(--hl); }
+.tg-header .sub {
+  margin-left: auto; font-size: 11px; color: var(--tg-theme-hint-color);
+  font-family: var(--mono); letter-spacing: .3px;
+}
+.tg-menu { color: var(--tg-theme-hint-color); font-size: 20px; line-height: 1; padding-left: 4px; }
+.back-btn {
+  flex: 0 0 auto; background: none; border: none; cursor: pointer;
+  color: var(--tg-theme-text-color); font-size: 26px; line-height: 1;
+  padding: 0 6px 0 0; margin-right: -2px;
+  display: flex; align-items: center;
+}
+
+/* ---------- screen container ---------- */
+.screen { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+
+/* ---------- word tiles ---------- */
+.tiles { display: flex; gap: var(--gap, 7px); }
+.tile {
+  width: var(--tile, 46px); height: var(--tile, 46px);
+  border-radius: var(--tile-r, 8px);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--mono);
+  font-size: var(--tile-fs, 22px);
+  font-weight: var(--tile-fw, 600);
+  text-transform: uppercase;
+  color: var(--tg-theme-text-color);
+  background: var(--tile-bg, transparent);
+  border: var(--tile-bd, 1px solid var(--hairline));
+  line-height: 1;
+}
+.tile.empty { color: transparent; background: var(--tile-empty); border-color: transparent; }
+.tile.dim { color: var(--tg-theme-hint-color); }
+
+/* correct-position highlight styles (letter matches the goal at this index).
+   green == correctness; tiles light up as you lock letters into place. */
+.app[data-hl="fill"] .tile.hit {
+  background: var(--acc-green); border-color: var(--acc-green); color: #fff;
+}
+.app[data-hl="underline"] .tile.hit {
+  color: var(--acc-green); border-color: var(--hairline);
+  box-shadow: inset 0 -3px 0 var(--acc-green);
+}
+.app[data-hl="color"] .tile.hit {
+  color: var(--acc-green); font-weight: 800;
+}
+.app[data-hl="ring"] .tile.hit {
+  color: var(--acc-green); border-color: var(--acc-green);
+  box-shadow: 0 0 0 2px var(--acc-green) inset;
+}
+/* success: when row reaches target it can go green */
+.tile.win { background: var(--acc-green) !important; border-color: var(--acc-green) !important; color: #fff !important; }
+/* changed letter: the one tile that differs from the previous word. A warm
+   amber inset ring + soft outer glow marks it, applied via box-shadow so it
+   layers on top of the green "correct" fill — visible and uniform on both
+   plain and green tiles. Amber (not green) keeps "changed" distinct from
+   "correct position". */
+.tile.changed {
+  box-shadow: inset 0 0 0 2px var(--acc-changed),
+              0 0 7px -1px var(--acc-changed);
+}
+
+/* ---------- chain rows ---------- */
+/* ---------- playing layout: scrollable history with a locked entry row below ---------- */
+.playstack { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.history { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; padding: 14px 16px 6px; }
+.history > .row:first-child { margin-top: auto; } /* stick rows to the bottom, still scrollable to the top */
+.row { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 5px 0; }
+.gutter {
+  width: 20px; flex: 0 0 20px; text-align: center;
+  font-family: var(--mono); font-size: 12px; color: var(--tg-theme-hint-color);
+  display: none;
+}
+.row .rlabel {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--tg-theme-hint-color);
+  margin-left: auto; align-self: center;
+}
+
+/* ---------- status bar (moves · goal · best, time below) ---------- */
+.statusbar {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--hairline);
+  background: var(--tg-theme-bg-color);
+  padding: 12px 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+}
+/* 3 columns: moves (left) | goal (dead-center, lines up with guesses) | best (right) */
+.statusbar-main {
+  width: 100%;
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+  gap: 10px;
+}
+.statusbar .target { justify-self: center; display: flex; }
+/* the goal is the hero of the bar: large, solid green, high contrast */
+.statusbar .target .tiles { --gap: 5px; }
+.statusbar .target .tile {
+  width: 34px !important; height: 38px !important;
+  font-size: 19px !important; font-weight: 700 !important;
+  border-radius: 8px !important;
+  background: var(--acc-green) !important;
+  border: none !important; color: #fff !important;
+  box-shadow: none !important;
+}
+.statusbar .counter.moves-c { justify-self: start; text-align: left; }
+.statusbar .counter.best    { justify-self: end;   text-align: right; }
+.counter .n { font-family: var(--mono); font-weight: 700; font-size: 18px; }
+.counter .k { display: block; font-size: 9px; letter-spacing: .5px; line-height: 1.2; text-transform: uppercase; color: var(--tg-theme-hint-color); }
+.counter.best .n { color: var(--hl); }
+
+/* time sits quietly below the goal; small + muted when counting up */
+.statusbar-time { display: flex; align-items: center; justify-content: center; min-height: 16px; }
+.solve-elapsed {
+  font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums;
+  color: var(--tg-theme-hint-color); letter-spacing: .5px;
+}
+.solve-elapsed::before { content: "⏱ "; opacity: .8; }
+/* in the centered time slot the shot clock is a single inline line */
+.statusbar-time .counter.shotclock { display: flex; align-items: baseline; gap: 6px; }
+.statusbar-time .counter.shotclock .n { font-size: 16px; }
+.statusbar-time .counter.shotclock .k { display: inline; font-size: 9px; }
+
+/* shot clock — countdown ss.xx; orange in the warn zone, red + per-second
+   pulse in the last seconds (the span's key changes each second, so the
+   remount re-triggers the animation) */
+.counter.shotclock .n { font-variant-numeric: tabular-nums; display: inline-block; }
+.counter.shotclock.warn .n   { color: #f5b942; }
+.counter.shotclock.danger .n { color: #e0564f; }
+.app[data-theme="dark"] .counter.shotclock.danger .n { color: #ff7b72; }
+.app:not([data-motion="off"]) .counter.shotclock.danger .n {
+  animation: clockPulse .34s ease-out;
+}
+@keyframes clockPulse { 0% { transform: scale(1.45); } 100% { transform: scale(1); } }
+
+/* ---------- entry row (fed by the on-screen keyboard, no OS input) ---------- */
+.entry-zone {
+  flex: 0 0 auto; position: relative;
+  padding: 9px 16px 7px;
+  border-top: 1px solid var(--hairline);
+  background: var(--tg-theme-bg-color);
+}
+.row.entry { position: relative; z-index: 1; }
+.tile.slot { color: transparent; }
+.app:not([data-motion="off"]) .tile.active { animation: caretPulse 1.05s ease-in-out infinite; }
+@keyframes caretPulse { 0%,100% { border-color: var(--hairline); } 50% { border-color: var(--tg-theme-text-color); } }
+.app[data-dir="bold"]:not([data-motion="off"]) .tile.active { animation-name: caretPulseBold; }
+@keyframes caretPulseBold { 0%,100% { border-color: transparent; } 50% { border-color: var(--tg-theme-hint-color); } }
+.row.entry.shake { animation: shake 0.4s; }
+
+.hint-line { min-height: 16px; text-align: center; font-size: 12px; font-family: var(--mono); color: var(--tg-theme-hint-color); margin-top: 7px; }
+.hint-line.err { color: #e0564f; }
+.app[data-theme="dark"] .hint-line.err { color: #ff7b72; }
+.giveup-link {
+  flex: 0 0 auto;
+  background: none; border: none; color: var(--tg-theme-hint-color);
+  font-family: var(--mono); font-size: 12px; text-decoration: underline; cursor: pointer;
+  align-self: center; padding: 8px 4px 6px;
+}
+.giveup-link.confirm { color: #e0564f; font-weight: 700; }
+.app[data-theme="dark"] .giveup-link.confirm { color: #ff7b72; }
+
+/* ---------- on-screen keyboard ---------- */
+.kb {
+  flex: 0 0 auto;
+  width: 100%; max-width: 480px; margin: 0 auto;
+  padding: 6px 6px 14px;
+  user-select: none; -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.kb-row { display: flex; justify-content: center; gap: 5px; margin-bottom: 6px; }
+.kb-row:last-child { margin-bottom: 0; }
+.kb-key {
+  flex: 1 1 0; max-width: 38px; height: 48px;
+  border: 1px solid var(--hairline); border-radius: 8px;
+  background: var(--tg-theme-secondary-bg-color);
+  color: var(--tg-theme-text-color);
+  font-family: var(--mono); font-size: 16px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.kb-key:active {
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 35%, var(--tg-theme-secondary-bg-color));
+  transform: translateY(1px);
+}
+.kb-key.wide { flex: 1.6 1 0; max-width: 62px; font-size: 18px; }
+.kb-key.enter { font-size: 10.5px; letter-spacing: .5px; }
+.kb-key.enter.ready {
+  background: var(--hl); border-color: var(--hl); color: var(--hl-text);
+}
+.kb.disabled .kb-key { opacity: .45; pointer-events: none; }
+
+/* commit: the whole history stack rises by exactly one row, smoothly and together
+   (cancels the instant bottom-stick shift, so old rows don't jerk) */
+.app:not([data-motion="off"]) .history.rising { animation: riseUp 0.6s cubic-bezier(.2,.8,.2,1); }
+@keyframes riseUp { from { transform: translateY(var(--rise, 52px)); } to { transform: translateY(0); } }
+
+/* win celebration: the winning row pops as it lands; confetti does the rest */
+.app:not([data-motion="off"]) .row.winrow { animation: winPop .55s cubic-bezier(.2,.8,.2,1) .05s both; }
+@keyframes winPop { 0% { transform: scale(1); } 35% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+/* ---------- confetti cannon (Confetti component) ----------
+   three nested spans per piece: .cf-x drifts horizontally + fades,
+   .cf-y rises then falls (gravity via per-keyframe easing), .cf-r spins. */
+.confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; z-index: 60; }
+.confetti .cf-x {
+  position: absolute; top: 64%;
+  animation: cfDrift var(--dur, 1.4s) ease-out var(--delay, 0s) both;
+}
+.confetti .cf-y { display: block; animation: cfArc var(--dur, 1.4s) var(--delay, 0s) both; }
+.confetti .cf-r {
+  display: block; width: 8px; height: 13px; border-radius: 2px;
+  animation: cfSpin var(--dur, 1.4s) linear var(--delay, 0s) both;
+}
+.confetti .cf-r.round { width: 9px; height: 9px; border-radius: 50%; }
+.confetti .cf-r.emoji { width: auto; height: auto; font-size: 20px; line-height: 1; background: none; }
+@keyframes cfDrift {
+  0%   { transform: translateX(0); opacity: 1; }
+  70%  { opacity: 1; }
+  100% { transform: translateX(var(--drift, 0px)); opacity: 0; }
+}
+@keyframes cfArc {
+  0%   { transform: translateY(0);                animation-timing-function: cubic-bezier(.16,.74,.36,1); }
+  36%  { transform: translateY(var(--up, -260px)); animation-timing-function: cubic-bezier(.55,.04,.83,.4); }
+  100% { transform: translateY(var(--fall, 540px)); }
+}
+@keyframes cfSpin { to { transform: rotate(var(--rot, 360deg)); } }
+.app[data-motion="off"] .confetti { display: none; }
+
+/* ---------- scrollable result screens ---------- */
+.sheet { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 22px 20px 16px; }
+.eyebrow { font-family: var(--mono); font-size: 11px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--tg-theme-hint-color); }
+.headline { font-family: var(--mono); font-weight: 700; font-size: 26px; margin: 6px 0 0; letter-spacing: .3px; }
+.headline.win { color: var(--acc-green); }
+
+/* golf scorecard */
+.scorecard {
+  margin: 18px 0 6px;
+  border: 1px solid var(--hairline);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--tg-theme-secondary-bg-color);
+}
+.scorecard .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+.scorecard .cell { padding: 16px 8px; text-align: center; position: relative; }
+.scorecard .cell + .cell::before { content: ""; position: absolute; left: 0; top: 16px; bottom: 16px; width: 1px; background: var(--hairline); }
+.scorecard .cell .num { font-family: var(--mono); font-size: 30px; font-weight: 700; line-height: 1; }
+.scorecard .cell .cap { display: block; margin-top: 6px; font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: var(--tg-theme-hint-color); }
+.scorecard .delta { border-top: 1px solid var(--hairline); padding: 11px; text-align: center; font-family: var(--mono); font-size: 13px; color: var(--tg-theme-hint-color); }
+.scorecard.even { border-color: var(--acc-green); }
+.scorecard.even .delta { background: var(--acc-green-soft); color: var(--acc-green); font-weight: 700; }
+.scorecard.even .cell.delta-num .num { color: var(--acc-green); }
+
+/* path replay block */
+.replay { margin-top: 18px; }
+.replay h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--tg-theme-hint-color); margin: 0 0 8px; font-weight: 600; }
+.replay.optimal .tiles .tile { border-style: dashed; }
+
+/* MainButton mock (Telegram renders this at the very bottom) */
+.mainbtn-wrap { flex: 0 0 auto; padding: 8px 16px 24px; background: var(--tg-theme-bg-color); }
+.mainbtn {
+  width: 100%; height: 50px; border: none; border-radius: 12px; cursor: pointer;
+  font-family: -apple-system, system-ui; font-size: 16px; font-weight: 600;
+  background: var(--tg-theme-button-color); color: var(--tg-theme-button-text-color);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.mainbtn.green { background: var(--acc-green); color: #fff; }
+.linkbtn { background: none; border: none; color: var(--tg-theme-hint-color); font-size: 13px; width: 100%; padding: 12px; cursor: pointer; font-family: var(--mono); }
+
+/* ---------- toast ---------- */
+.toast {
+  position: absolute; left: 50%; bottom: 74px; transform: translateX(-50%);
+  background: var(--tg-theme-text-color); color: var(--tg-theme-bg-color);
+  font-family: var(--mono); font-size: 12px; padding: 9px 14px; border-radius: 10px;
+  white-space: nowrap; z-index: 30; opacity: .94;
+  animation: toastin .2s ease;
+}
+@keyframes toastin { from { opacity: 0; transform: translate(-50%, 6px); } to { opacity: .94; transform: translateX(-50%); } }
+
+/* ---------- loading / error ---------- */
+.center-screen { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; text-align: center; }
+.spinner { width: 34px; height: 34px; border-radius: 50%; border: 3px solid var(--hairline); border-top-color: var(--hl); animation: spin 0.8s linear infinite; }
+.center-screen p { font-family: var(--mono); font-size: 13px; color: var(--tg-theme-hint-color); margin: 0; }
+.center-screen .big { font-size: 15px; color: var(--tg-theme-text-color); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===================================================================
+   DIRECTIONS
+   =================================================================== */
+
+/* A — QUIET: airy, hairline tiles, no rail, tiny labels */
+.app[data-dir="quiet"] {
+  --tile: 46px; --tile-r: 9px; --tile-fs: 22px; --tile-fw: 500; --gap: 8px;
+  --tile-bg: transparent;
+  --tile-bd: 1px solid var(--hairline);
+}
+.app[data-dir="quiet"] .history { padding-top: 18px; }
+.app[data-dir="quiet"] .row { padding: 6px 0; }
+
+/* B — LADDER: numbered rung-nodes threaded on a vertical rail, filled cells */
+.app[data-dir="ladder"] {
+  --tile: 44px; --tile-r: 6px; --tile-fs: 21px; --tile-fw: 600; --gap: 6px;
+  --tile-bg: var(--tg-theme-secondary-bg-color);
+  --tile-bd: 1px solid var(--hairline);
+}
+.app[data-dir="ladder"] .history .row { position: relative; gap: 10px; }
+/* rail: a real connector drawn downward from each node to the next.
+   rows are centred and identical-width, so every node aligns vertically. */
+.app[data-dir="ladder"] .history .gutter::after {
+  content: ""; position: absolute; left: 50%; top: 100%; transform: translateX(-50%);
+  width: 2px; height: 30px; background: var(--tg-theme-hint-color); opacity: .4; z-index: -1;
+}
+.app[data-dir="ladder"] .history .row:last-child .gutter::after { display: none; }
+/* the gutter IS the numbered rung-node (real element so it always renders) */
+.app[data-dir="ladder"] .gutter {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; flex: 0 0 24px; border-radius: 50%;
+  position: relative; z-index: 2;
+  background: var(--tg-theme-bg-color); border: 2px solid var(--tg-theme-hint-color);
+  font-size: 11px; font-weight: 700; color: var(--tg-theme-hint-color);
+}
+.app[data-dir="ladder"] .row.cur .gutter {
+  background: var(--hl); border-color: var(--hl); color: var(--hl-text);
+}
+
+/* C — BOLD: big chunky tiles, shadow, heavy type */
+.app[data-dir="bold"] {
+  --tile: 56px; --tile-r: 13px; --tile-fs: 30px; --tile-fw: 700; --gap: 9px;
+  --tile-bg: var(--tg-theme-secondary-bg-color);
+  --tile-bd: 1.5px solid transparent;
+}
+.app[data-dir="bold"] .tile { box-shadow: 0 1px 0 var(--hairline); }
+.app[data-dir="bold"] .wordmark { font-size: 19px; }
+.app[data-dir="bold"] .headline { font-size: 30px; }
+.app[data-dir="bold"] .scorecard .cell .num { font-size: 36px; }
+.app[data-dir="bold"] .history { padding-top: 16px; }
+
+/* ===================================================================
+   MOTION
+   =================================================================== */
+@keyframes rowin { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes tilepop { 0% { transform: scale(.6); opacity: 0; } 60% { transform: scale(1.12); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes shake { 10%,90%{transform:translateX(-2px);} 30%,70%{transform:translateX(4px);} 50%{transform:translateX(-6px);} }
+@keyframes pulse { 0%{transform:scale(1);} 50%{transform:scale(1.06);} 100%{transform:scale(1);} }
+
+.app:not([data-motion="off"]) .row.enter { animation: rowin var(--rowdur, 280ms) cubic-bezier(.2,.8,.2,1); }
+/* page-turn flip on each newly-entered word; staggered left→right.
+   the back half of the turn reveals the green correct-position state. */
+.tiles { perspective: 850px; }
+.app:not([data-motion="off"]) .tile.flip { animation: flipPlain 0.7s ease both; animation-delay: calc(var(--i, 0) * 0.14s); }
+.app:not([data-motion="off"])[data-hl="fill"] .tile.flip.hit { animation-name: flipHit; }
+@keyframes flipPlain { 0% { transform: rotateY(0deg); } 50% { transform: rotateY(-90deg); } 100% { transform: rotateY(0deg); } }
+@keyframes flipHit {
+  0%    { transform: rotateY(0deg);   background: var(--tile-bg, transparent); border-color: var(--hairline); color: var(--tg-theme-text-color); }
+  49.9% { transform: rotateY(-90deg); background: var(--tile-bg, transparent); border-color: var(--hairline); color: var(--tg-theme-text-color); }
+  50%   { background: var(--acc-green); border-color: var(--acc-green); color: #fff; }
+  100%  { transform: rotateY(0deg);   background: var(--acc-green); border-color: var(--acc-green); color: #fff; }
+}
+.app[data-motion="off"] .spinner { animation-duration: 1.4s; }
+.app:not([data-motion="off"]) .headline.win { animation: pulse 600ms ease 1; }
+.app[data-motion="low"] .row.enter { --rowdur: 180ms; }
+.app[data-motion="high"] .row.enter { --rowdur: 360ms; }
+@media (prefers-reduced-motion: reduce) {
+  .app .row.enter, .app .tile.hit, .app .tile.flip, .app .headline.win,
+  .app .row.winrow { animation: none !important; }
+  .app .confetti { display: none; }
+}
+
+/* ---------- finished screen (Poople-style results) ---------- */
+.sheet.finish { text-align: center; padding-top: 26px; }
+.finish-tag { font-family: var(--mono); font-size: 13px; letter-spacing: 2px; text-transform: uppercase; color: var(--tg-theme-hint-color); font-weight: 700; }
+.finish-tag.perfect { color: var(--acc-green); }
+
+/* ---------- hybrid score pill (finish / result / lobby card) ----------
+   Integer score (solve seconds + 60·move) in a delta-tinted pill: par green →
+   gold/orange/red over par, teal under. Small par-delta superscript + ⚡ when a
+   clean time-attack solve. Matches the rendered group board. */
+.finish-score { margin: 8px 0 2px; }
+.score-pill {
+  display: inline-flex; align-items: baseline; gap: 2px;
+  padding: 7px 16px; border-radius: 12px; color: #fff;
+  font-family: var(--mono); font-weight: 800; font-variant-numeric: tabular-nums;
+  background: linear-gradient(135deg, var(--sc), color-mix(in srgb, var(--sc) 72%, #000));
+}
+.score-pill.lg { font-size: 26px; }
+.score-pill.sm { font-size: 15px; padding: 5px 11px; border-radius: 9px; }
+.score-pill .sp-tag { font-size: .5em; font-weight: 800; opacity: .92; margin-left: 1px; }
+.score-pill .sp-bolt { font-size: .55em; margin-left: 4px; color: #fff3b0; align-self: center; }
+.sc-par { --sc: #43b06a; }
+.sc-1   { --sc: #e3b24a; }
+.sc-2   { --sc: #e08a3c; }
+.sc-3   { --sc: #cf4f47; }
+.sc-un  { --sc: #46c79a; }
+.card-result.score { background: none; padding: 4px 0; }
+.finish-pair { font-family: var(--mono); font-weight: 700; font-size: 27px; margin-top: 5px; letter-spacing: .5px; }
+.finish-pair .to { color: var(--tg-theme-hint-color); font-weight: 600; font-size: 17px; padding: 0 8px; }
+.finish-lines { margin-top: 16px; font-family: var(--mono); font-size: 14px; line-height: 1.85; color: var(--tg-theme-text-color); }
+.finish-lines b { font-weight: 700; }
+.copy { margin-top: 8px; background: none; border: none; color: var(--tg-theme-link-color); font-family: var(--mono); font-size: 13px; text-decoration: underline; cursor: pointer; padding: 4px; }
+
+.stats, .dist { text-align: left; margin-top: 26px; }
+.stats h4, .dist h4 { font-family: var(--mono); font-size: 11px; letter-spacing: 1.3px; text-transform: uppercase; color: var(--tg-theme-hint-color); margin: 0 0 12px; font-weight: 700; }
+.statgrid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.statcell { text-align: center; }
+.statcell .v { font-family: var(--mono); font-weight: 700; font-size: 23px; line-height: 1; display: block; }
+.statcell .l { display: block; margin-top: 7px; font-size: 9px; letter-spacing: .3px; text-transform: uppercase; color: var(--tg-theme-hint-color); line-height: 1.35; }
+
+.distrow { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; font-family: var(--mono); font-size: 12px; }
+.distrow .k { width: 18px; flex: 0 0 18px; text-align: right; color: var(--tg-theme-hint-color); }
+.distrow .bar {
+  height: 24px; border-radius: 5px; background: var(--tg-theme-secondary-bg-color);
+  display: flex; align-items: center; padding: 0 8px; min-width: 24px; box-sizing: border-box;
+  color: var(--tg-theme-text-color); font-weight: 700; font-size: 12px;
+}
+.distrow.me .bar { background: var(--acc-green); color: #fff; }
+
+.countdown { margin-top: 26px; text-align: center; font-family: var(--mono); font-size: 13px; color: var(--tg-theme-hint-color); }
+.countdown b { color: var(--tg-theme-text-color); font-weight: 700; }
+
+/* ---------- lobby ---------- */
+.screen.lobby {
+  flex: 1 1 auto;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 22px; padding: 28px 16px 36px;
+}
+.lobby-day {
+  font-family: var(--mono); font-size: 12px; letter-spacing: 1.4px;
+  text-transform: uppercase; color: var(--tg-theme-hint-color); font-weight: 700;
+  text-align: center;
+}
+
+/* ---------- challenge day (Wicked Wednesday) ---------- */
+/* rubber stamp: red ink, double ring, slammed down at an angle */
+.challenge-stamp {
+  font-family: var(--mono); font-weight: 800; font-size: 19px;
+  letter-spacing: 3px; line-height: 1.45; text-transform: uppercase;
+  text-align: center;
+  color: var(--stamp);
+  border: 3px double var(--stamp);
+  border-radius: 10px;
+  padding: 8px 18px;
+  background: color-mix(in srgb, var(--stamp) 6%, transparent);
+  transform: rotate(-7deg);
+  margin-bottom: -6px;
+}
+.app:not([data-motion="off"]) .challenge-stamp {
+  animation: stampSlam .5s cubic-bezier(.16,1.4,.3,1) .15s both;
+}
+@keyframes stampSlam {
+  0%   { transform: rotate(-18deg) scale(2.4); opacity: 0; }
+  55%  { opacity: 1; }
+  100% { transform: rotate(-7deg) scale(1); opacity: 1; }
+}
+.challenge-note {
+  margin-top: -14px;
+  font-family: var(--mono); font-size: 11.5px;
+  color: var(--tg-theme-hint-color); text-align: center;
+}
+.puzzle-card.challenge:not(.played) {
+  border-color: color-mix(in srgb, var(--stamp) 45%, transparent);
+}
+.puzzle-card.challenge .card-par { color: var(--stamp); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) {
+  .app .challenge-stamp { animation: none !important; }
+}
+
+/* ---------- day-level Hard Mode toggle (lobby) ---------- */
+/* same switch language as the per-card ⚡ toggle, but stamp-red and wider */
+.hard-toggle {
+  display: inline-flex; align-self: center; align-items: center; gap: 7px;
+  font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .3px;
+  padding: 8px 16px; border-radius: 11px; cursor: pointer;
+  border: 1.5px solid var(--hairline);
+  background: transparent; color: var(--tg-theme-hint-color);
+  -webkit-tap-highlight-color: transparent;
+  transition: background .12s, border-color .12s, color .12s;
+}
+.hard-toggle .ta-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  border: 1.5px solid currentColor; background: transparent;
+  transition: background .12s;
+}
+.hard-toggle.on {
+  color: var(--stamp);
+  border-color: color-mix(in srgb, var(--stamp) 60%, transparent);
+  background: color-mix(in srgb, var(--stamp) 14%, transparent);
+}
+.hard-toggle.on .ta-dot { background: var(--stamp); }
+.hard-toggle:active { transform: scale(0.97); }
+
+.lobby-cards {
+  display: flex; flex-direction: row; gap: 12px; width: 100%;
+}
+
+/* ---------- puzzle card ---------- */
+.puzzle-card {
+  flex: 1 1 0; min-width: 0;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 18px;
+  border: 1.5px solid var(--hairline);
+  padding: 18px 12px 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  cursor: pointer; user-select: none;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+  will-change: transform;
+}
+.puzzle-card:active { transform: scale(0.95); opacity: 0.82; }
+.puzzle-card.played  { border-color: color-mix(in srgb, var(--acc-green) 40%, transparent); }
+.puzzle-card.perfect { border-color: var(--acc-green); }
+.puzzle-card.timedout { border-color: color-mix(in srgb, #e0564f 40%, transparent); }
+
+.card-label {
+  font-family: var(--mono); font-size: 10px; letter-spacing: 1.3px;
+  text-transform: uppercase; color: var(--tg-theme-hint-color); font-weight: 700;
+}
+.card-words {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+}
+.card-word {
+  font-family: var(--mono); font-weight: 700; font-size: 19px;
+  letter-spacing: 3px; text-transform: uppercase;
+}
+.card-word.start { color: var(--tg-theme-text-color); }
+.card-word.end   { color: var(--acc-green); }
+.card-arrow {
+  font-size: 12px; color: var(--tg-theme-hint-color); line-height: 1.2;
+}
+/* mystery tiles — words hidden until first reveal (the clock starts there) */
+.card-words.mystery { gap: 4px; }
+.card-words.mystery .mrow { display: flex; gap: 3px; }
+.card-words.mystery .mtile {
+  width: 21px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--hairline); border-radius: 5px;
+  background: var(--tg-theme-bg-color);
+  font-family: var(--mono); font-weight: 700; font-size: 12px;
+  color: var(--tg-theme-hint-color);
+}
+.card-words.mystery .mtile.end {
+  border-color: color-mix(in srgb, var(--acc-green) 55%, transparent);
+  color: var(--acc-green);
+}
+.card-par {
+  font-family: var(--mono); font-size: 11px; color: var(--tg-theme-hint-color);
+}
+.card-play {
+  width: 100%; text-align: center;
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  color: var(--tg-theme-button-text-color);
+  background: var(--tg-theme-button-color);
+  padding: 8px 0; border-radius: 10px;
+}
+.card-result {
+  width: 100%; text-align: center;
+  font-family: var(--mono); font-size: 13px; font-weight: 700;
+  color: var(--tg-theme-hint-color);
+  background: color-mix(in srgb, var(--tg-theme-hint-color) 12%, transparent);
+  padding: 8px 0; border-radius: 10px;
+}
+.card-result.perfect {
+  color: var(--acc-green);
+  background: var(--acc-green-soft);
+}
+.card-result.timeout {
+  color: #e0564f;
+  background: color-mix(in srgb, #e0564f 12%, transparent);
+}
+.app[data-theme="dark"] .card-result.timeout { color: #ff7b72; }
+
+/* ⚡ Time Attack win tag on finish / result screens */
+.ta-flair {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  letter-spacing: 1px; text-transform: uppercase;
+  color: #f5b942; margin-top: 6px;
+}
+
+.lobby-share-btn {
+  width: 100%; border: 1.5px solid var(--tg-theme-button-color);
+  border-radius: 14px; padding: 13px 24px;
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  color: var(--tg-theme-button-color);
+  background: color-mix(in srgb, var(--tg-theme-button-color) 10%, transparent);
+  cursor: pointer;
+}
+.lobby-lb-btn {
+  width: 100%; border: 1.5px solid var(--hairline);
+  border-radius: 14px; padding: 13px 24px;
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  color: var(--tg-theme-text-color);
+  background: var(--tg-theme-secondary-bg-color);
+  cursor: pointer;
+}
+
+/* ---------- zoom overlay (card → fullscreen transition) ---------- */
+.zoom-overlay {
+  position: fixed; inset: 0; z-index: 50;
+  background: var(--tg-theme-bg-color);
+  transform-origin: var(--ox, 50%) var(--oy, 50%);
+  animation: cardZoomIn 340ms cubic-bezier(.2,.8,.2,1) forwards;
+  pointer-events: none;
+}
+@keyframes cardZoomIn {
+  from { transform: scale(0.06); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+/* ---------- leaderboard screen ---------- */
+.lb-toggle {
+  display: flex; margin-top: 14px; margin-bottom: 4px;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 10px; padding: 3px; gap: 3px;
+}
+.lb-tab {
+  flex: 1; border: none; border-radius: 8px; padding: 8px 0;
+  font-family: var(--mono); font-size: 13px; font-weight: 600;
+  cursor: pointer;
+  background: transparent; color: var(--tg-theme-hint-color);
+  transition: background 0.15s, color 0.15s;
+}
+.lb-tab.active {
+  background: var(--tg-theme-bg-color);
+  color: var(--tg-theme-text-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+}
+
+.lb-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 11px 0; border-bottom: 1px solid var(--hairline);
+  font-family: var(--mono); font-size: 13px;
+}
+.lb-row:last-child { border-bottom: none; }
+.lb-row.gave-up { opacity: 0.6; }
+.lb-rank { width: 24px; flex: 0 0 24px; font-size: 15px; text-align: center; }
+.lb-name { flex: 1 1 auto; color: var(--tg-theme-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+.lb-moves { color: var(--tg-theme-text-color); white-space: nowrap; font-weight: 600; }
+.lb-avg {
+  color: var(--tg-theme-hint-color); font-size: 11px; white-space: nowrap;
+  min-width: 52px; text-align: right;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px;
+}
+.lb-avg.dash .lb-avg-main { opacity: 0.45; }
+.lb-tt { color: #f5b942; font-size: 10px; font-weight: 700; }
+
+.lb-legend {
+  font-family: var(--mono); font-size: 10.5px; color: var(--tg-theme-hint-color);
+  text-align: center; margin: 10px 0 2px; opacity: .8;
+}
+.lb-section {
+  font-family: var(--mono); font-weight: 800; font-size: 12px; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--stamp);
+  margin: 18px 0 6px; padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--stamp) 30%, transparent);
+}
