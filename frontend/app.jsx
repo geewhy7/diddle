@@ -37,11 +37,14 @@ function pkey(num, len, hard) { return `${num}-${len}-${modeChar(hard)}`; }
 function puzKey(p) { return pkey(p.num, p.length, p.hardMode); }
 
 // ---- Win stats (localStorage) — per-puzzle-length counters -----------------
-// .v3 keys: the 2026-06-17 era reset (scores cleared + seed offset 1776→1984,
-// puzzles rerolled) — old-era local state must not survive into the new one.
-// (.v2 was the 2026-06-12 reset.) Bump these together on every era reset; an
-// empty server today won't overwrite local played state (see /me sync below),
-// so the key bump is what actually clears stale "already played" cards.
+// Version-suffixed so a bump abandons stale local state (the /me sync only
+// OVERWRITES entries the server still has scores for; it never deletes, so a
+// cleared puzzle otherwise keeps showing "already played" — hence the bump).
+// History: .v2 = 2026-06-12 reset; .v3 = 2026-06-17 era reset (seed 1776→1984).
+// The per-puzzle keys are at .v4 (2026-06-21: 5L pool fix re-rolled that day's
+// 5-letter puzzle, so its stale played/timer state had to be dropped). STATS is
+// deliberately left at .v3 — that was a single-puzzle re-roll, not an era reset,
+// and no 5L was finished that day, so win streaks are preserved.
 const STATS_KEY  = 'diddle.stats.v3';
 const ZERO_STATS = { wins: 0, totalExtra: 0, currentStreak: 0, bestStreak: 0,
                      dist: [0,0,0,0,0,0,0], counted: {} };
@@ -68,7 +71,7 @@ function recordWin(stats, num, length, extra, hard = false) {
 }
 
 // ---- Played results (localStorage) — lobby card state ----------------------
-const PLAYED_KEY = 'diddle.played.v3';
+const PLAYED_KEY = 'diddle.played.v4';
 function loadPlayed() {
   try {
     const s = JSON.parse(localStorage.getItem(PLAYED_KEY));
@@ -79,7 +82,7 @@ function loadPlayed() {
 
 // ---- Solve-timer starts (localStorage) — epoch ms keyed "${day}-${length}" --
 // Display only; the recorded time is computed server-side from progress.started_at.
-const START_KEY = 'diddle.start.v3';
+const START_KEY = 'diddle.start.v4';
 function loadStarts() {
   try {
     const s = JSON.parse(localStorage.getItem(START_KEY));
@@ -91,7 +94,7 @@ function loadStarts() {
 // ---- Shot-clock deadlines (localStorage) — epoch ms keyed "${day}-${length}" -
 // Strict wall clock: persisted so closing and reopening the app can't dodge a
 // running guess timer. A stored deadline in the past = the game was lost away.
-const DEADLINE_KEY = 'diddle.deadline.v3';
+const DEADLINE_KEY = 'diddle.deadline.v4';
 function loadDeadlines() {
   try {
     const s = JSON.parse(localStorage.getItem(DEADLINE_KEY));
@@ -106,7 +109,7 @@ function loadDeadlines() {
 // play continues untimed — not a loss. TA_FAIL records, per "${day}-${length}-
 // ${mode}", that the clock lapsed, so reopening doesn't re-arm it and the solve
 // is flagged "not clean" (no ⚡). A solve with no fail flag = clean ⚡ TA win.
-const TA_FAIL_KEY = 'diddle.tafail.v3';
+const TA_FAIL_KEY = 'diddle.tafail.v4';
 function loadTaFail() {
   try {
     const s = JSON.parse(localStorage.getItem(TA_FAIL_KEY));

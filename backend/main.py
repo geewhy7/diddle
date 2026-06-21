@@ -65,6 +65,12 @@ CHALLENGE_MIN_STEPS   = _env_int("CHALLENGE_MIN_STEPS", 9)
 CHALLENGE_MAX_STEPS   = _env_int("CHALLENGE_MAX_STEPS", 15)
 CHALLENGE_FREQ_TOP_N  = _env_int("CHALLENGE_FREQ_TOP_N", 20_000)   # 4L par pool: general top-N
 CHALLENGE_SEED_OFFSET = 100_000  # separates challenge seeds from regular seeds
+# Frequency cap on the 5L SELECTION pool (what normal puzzles + par are drawn
+# from). game.load_words(5) is dwyl ∩ the full Wordle guess list with no freq
+# filter, so without this the daily puzzle can be all obscure words (e.g.
+# BURAN→DEXES). Matches 4L's top-30k common cutoff; the full Wordle list stays
+# the typeable/validation set, so rarer words are still legal guesses.
+PUZZLE_5L_FREQ_TOP_N  = _env_int("PUZZLE_5L_FREQ_TOP_N", 30_000)
 # 5L par pool = the most-common slice of the 5L base pool (Wordle ∩ Scrabble),
 # by frequency. Big enough that ordinary words (e.g. WANDS) are gateways, small
 # enough that a rare-word shortcut under par is still possible. The base pool is
@@ -154,31 +160,37 @@ async def lifespan(app: FastAPI):
     try:
         from wordfreq import top_n_list, zipf_frequency
         freq_top = set(top_n_list("en", CHALLENGE_FREQ_TOP_N))
+        freq_sel_5l = set(top_n_list("en", PUZZLE_5L_FREQ_TOP_N))
     except ImportError:
         freq_top = set()
+        freq_sel_5l = None
         zipf_frequency = None
         log.warning("wordfreq unavailable — challenge word lists will equal regular lists")
 
     for length in WORD_LENGTHS:
         raw   = load_words(length)
 
-        # Selection + par pool. 5L: the curated Wordle play set includes entries
-        # that aren't valid Scrabble words (e.g. LANDE) — intersect with the
-        # Scrabble list (dwyl ∩ ENABLE) so puzzles and the optimal path never lean
-        # on them. Guessing still allows the full Wordle list (set as validation
-        # below). Falls back to the unfiltered play set if the Scrabble fetch
-        # fails, so puzzles always generate. 4L selection is a common-word pool
-        # already, left as-is.
+        # Selection + par pool. 5L: the curated Wordle play set is (a) full of
+        # entries that aren't valid Scrabble words (e.g. LANDE) and (b) NOT
+        # frequency-filtered (game.load_words(5) drops its top-50k cut), so the
+        # raw pool yields all-obscure puzzles like BURAN→DEXES. Intersect with the
+        # Scrabble list (dwyl ∩ ENABLE) AND a top-N frequency cap so puzzles, par,
+        # and the optimal path stay on common words. Guessing still allows the
+        # full Wordle list (set as validation below); falls back gracefully if the
+        # Scrabble fetch or wordfreq is unavailable. 4L is already a top-30k common
+        # pool via load_words(4), left as-is.
         sel_raw = raw
         if length == 5:
             try:
                 filtered = raw & _load_scrabble(length)
+                if filtered and freq_sel_5l:
+                    filtered &= freq_sel_5l
                 if filtered:
                     sel_raw = filtered
-                    log.info("Selection pool (5L): %d words (Wordle ∩ Scrabble, from %d Wordle)",
-                             len(filtered), len(raw))
+                    log.info("Selection pool (5L): %d words (Wordle ∩ Scrabble ∩ top-%d, from %d Wordle)",
+                             len(filtered), PUZZLE_5L_FREQ_TOP_N, len(raw))
                 else:
-                    log.warning("Wordle ∩ Scrabble empty (5L) — selection = full Wordle play set")
+                    log.warning("5L selection filter empty — falling back to full Wordle play set")
             except Exception as exc:
                 log.warning("Scrabble dict fetch failed (5L) — selection = full Wordle play set: %s", exc)
 
@@ -355,10 +367,15 @@ def today_puzzle(length: int = 5, hard: bool = False) -> dict:
     if hard:
         if _challenge_puzzle_days.get(length) != today:
             start, end, optimal = _hard_pick(length, today)
+            # Reveal path = a shortest line through the par pool, so "give up"
+            # shows the same recognizable words par is measured against rather
+            # than an obscure under-par route the client could BFS on its own.
+            path = bfs(_challenge_graph[length], start, end) or [start, end]
             _challenge_puzzles[length] = {
                 "start":         start,
                 "end":           end,
                 "optimal_steps": optimal,
+                "optimal_path":  path,
                 "day":           game_day(),
                 "word_length":   length,
                 "is_challenge":  True,
@@ -369,10 +386,15 @@ def today_puzzle(length: int = 5, hard: bool = False) -> dict:
 
     if _puzzle_days.get(length) != today:
         start, end, optimal = _normal_pick(length, today)
+        # Reveal path = a shortest line through the selection (common-word) pool
+        # that par is measured against, so "give up" matches the par number and
+        # avoids surfacing obscure rarer-word shortcuts (e.g. SERS/SERE).
+        path = bfs(_graph[length], start, end) or [start, end]
         _puzzles[length] = {
             "start":         start,
             "end":           end,
             "optimal_steps": optimal,
+            "optimal_path":  path,
             "day":           game_day(),
             "word_length":   length,
             "is_challenge":  False,
@@ -862,6 +884,7 @@ async def puzzle(length: int = Query(default=5)):
             "start":         hard["start"],
             "end":           hard["end"],
             "optimal_steps": hard["optimal_steps"],
+            "optimal_path":  hard["optimal_path"],
         }
     return resp
 

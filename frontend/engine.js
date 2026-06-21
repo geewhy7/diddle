@@ -83,8 +83,8 @@
     if (!pzRes.ok) throw new Error(`Puzzle fetch failed (${pzRes.status})`);
     if (!wRes.ok)  throw new Error(`Words fetch failed (${wRes.status})`);
 
-    const { start, end, optimal_steps, day, word_length, time_limit,
-            hard_available, hard } = await pzRes.json();
+    const { start, end, optimal_steps, optimal_path, day, word_length,
+            time_limit, hard_available, hard } = await pzRes.json();
     const wordText = await wRes.text();
 
     const words = wordText.trim().split('\n')
@@ -97,10 +97,15 @@
     const dict = new Set(words);
 
     // Build a playable puzzle object for one variant of this length.
-    const makeVariant = (s, e, par, hardMode) => {
+    const makeVariant = (s, e, par, hardMode, serverPath) => {
       const startUC  = s.toUpperCase();
       const targetUC = e.toUpperCase();
-      const optimalPath = shortestPath(startUC, targetUC, adj) || [startUC, targetUC];
+      // Prefer the server's canonical par path (common-word pool, matches the
+      // par number shown on "give up"). Only BFS the full graph as a fallback,
+      // which can route through obscure rarer words.
+      const optimalPath = (Array.isArray(serverPath) && serverPath.length > 1)
+        ? serverPath.map(w => w.toUpperCase())
+        : (shortestPath(startUC, targetUC, adj) || [startUC, targetUC]);
       return {
         id:     `day-${day}-${hardMode ? 'h' : 'n'}`,
         num:    day,
@@ -130,10 +135,10 @@
       };
     };
 
-    const normal = makeVariant(start, end, optimal_steps, false);
+    const normal = makeVariant(start, end, optimal_steps, false, optimal_path);
     // The hard variant (same length) — null if today has no qualifying pair.
     normal.hardVariant = (hard_available && hard)
-      ? makeVariant(hard.start, hard.end, hard.optimal_steps, true)
+      ? makeVariant(hard.start, hard.end, hard.optimal_steps, true, hard.optimal_path)
       : null;
     return normal;
   }
