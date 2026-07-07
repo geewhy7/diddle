@@ -255,7 +255,7 @@ function ordinalSuffix(n) {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 }
 
-function FinishedScreen({ puzzle, path, stats, scoreResult, onShare, onClose }) {
+function FinishedScreen({ puzzle, path, stats, scoreResult, peers, peersLoading }) {
   const moves = path.length - 1;
   const best = puzzle.par;
   const delta = scoreResult?.delta ?? (moves - best);   // signed: <0 = under par
@@ -280,7 +280,7 @@ function FinishedScreen({ puzzle, path, stats, scoreResult, onShare, onClose }) 
             {fmtTime(scoreResult?.solve_seconds) ? <> in <b>{fmtTime(scoreResult.solve_seconds)}</b></> : null}.
           </div>
           <div>
-            Score <b>{score == null ? '—' : score}</b> = {fmtTime(scoreResult?.solve_seconds) || `${moves * 60}s`}
+            Score <b>{fmtScore(score)}</b> = {fmtTime(scoreResult?.solve_seconds) || `${moves * 60}s`}
             {' '}+ <b>{moves}</b> {moves === 1 ? "guess" : "guesses"} × 60s.
           </div>
           <div>
@@ -290,7 +290,8 @@ function FinishedScreen({ puzzle, path, stats, scoreResult, onShare, onClose }) 
           </div>
           {ordinal && <div>You were the <b>{ordinalSuffix(ordinal)}</b> person to finish today.</div>}
         </div>
-        <button className="copy" onClick={onShare}>Copy results</button>
+
+        <LadderPicker puzzle={puzzle} path={path} peers={peers} peersLoading={peersLoading} soloSeconds={scoreResult?.solve_seconds} />
 
         <div className="stats">
           <h4>Stats</h4>
@@ -317,33 +318,23 @@ function FinishedScreen({ puzzle, path, stats, scoreResult, onShare, onClose }) 
 
         <Countdown />
       </div>
-
-      <div className="mainbtn-wrap">
-        <button className="mainbtn green" onClick={onShare}>Share result</button>
-        <button className="linkbtn" onClick={onClose}>← Back to puzzles</button>
-      </div>
     </div>
   );
 }
 
-function GaveUpScreen({ puzzle, path, onClose }) {
+function GaveUpScreen({ puzzle, path, peers, peersLoading }) {
   const last = path[path.length - 1];
   const away = puzzle.bestFromHere(last);
   return (
     <div className="screen">
       <div className="sheet">
         <div className="eyebrow">Diddle · No.{puzzle.num} · {puzzle.length} letters</div>
-        <h1 className="headline">Maybe tomorrow.</h1>
-        <p style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--tg-theme-hint-color)", marginTop: 8 }}>
+        <GaveUpStamp />
+        <p style={{ fontFamily: "var(--mono)", fontSize: 13, color: "var(--tg-theme-hint-color)", marginTop: 14, textAlign: "center" }}>
           You were {away === Infinity ? "a few" : away} {away === 1 ? "move" : "moves"} from <b style={{ color: "var(--tg-theme-text-color)" }}>{puzzle.target}</b>.
         </p>
 
-        <Replay title="how far you got" path={path} target={puzzle.target} />
-        <Replay title={`the shortest route · ${puzzle.par} moves`} path={puzzle.optimalPath} target={puzzle.target} optimal={true} />
-      </div>
-
-      <div className="mainbtn-wrap">
-        <button className="linkbtn" onClick={onClose}>← Back to puzzles</button>
+        <LadderPicker puzzle={puzzle} path={path} gaveUp={true} peers={peers} peersLoading={peersLoading} />
       </div>
     </div>
   );
@@ -408,18 +399,11 @@ function PuzzleCard({ puzzle, playedResult, onPlay }) {
 
 // ---- LobbyScreen -----------------------------------------------------------
 
-function LobbyScreen({ puzzles, played, onPlay, onLeaderboard, onShare,
+function LobbyScreen({ puzzles, played, onPlay, onLeaderboard,
                       hardPref, hardAvailable, onToggleHard }) {
   const dayNum = puzzles[4]?.num || puzzles[5]?.num || '';
   // The view's variant is hard when the toggle is on (cards swap to hardVariant).
   const isChallenge = !!hardPref;
-
-  const completedCount = [4, 5].filter(len => {
-    const p = puzzles[len];
-    const e = p && played[pkey(p.num, len, p.hardMode)];
-    return e && !e.gaveUp && !e.timedOut;
-  }).length;
-  const shareLabel = completedCount === 2 ? 'Share Scores' : 'Share Score';
 
   return (
     <div className="screen lobby">
@@ -453,20 +437,14 @@ function LobbyScreen({ puzzles, played, onPlay, onLeaderboard, onShare,
           />
         ) : null)}
       </div>
-      {completedCount > 0 && (
-        <button className="lobby-share-btn" onClick={onShare}>
-          {shareLabel} 📋
-        </button>
-      )}
     </div>
   );
 }
 
 // ---- ResultScreen (replay a previously completed or gave-up puzzle) --------
 
-function ResultScreen({ puzzle, path, gaveUp, timedOut, timeAttack, delta, score, onShare, onClose }) {
+function ResultScreen({ puzzle, path, gaveUp, timedOut, timeAttack, delta, score, solveSeconds, peers, peersLoading }) {
   const failed  = gaveUp || timedOut;
-  const moves   = path.length - 1;
   const last    = path[path.length - 1];
   const away    = failed ? puzzle.bestFromHere(last) : 0;
 
@@ -474,41 +452,23 @@ function ResultScreen({ puzzle, path, gaveUp, timedOut, timeAttack, delta, score
     <div className="screen">
       <div className="sheet">
         <div className="eyebrow">Day {puzzle.num} · {puzzle.length} letters</div>
-        <h1 className={"headline" + (!failed ? " win" : "")}>
-          {timedOut ? "Time's up. ⌛" : gaveUp ? 'Maybe tomorrow.' : 'Solved!'}
-        </h1>
+        {gaveUp ? (
+          <GaveUpStamp />
+        ) : (
+          <h1 className={"headline" + (!failed ? " win" : "")}>
+            {timedOut ? "Time's up. ⌛" : 'Solved!'}
+          </h1>
+        )}
         {!failed && (
           <div className="finish-score"><ScorePill score={score} delta={delta} clean={!!timeAttack} size="lg" /></div>
         )}
         {failed && (
-          <p style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--tg-theme-hint-color)', marginTop: 8 }}>
+          <p style={{ fontFamily: 'var(--mono)', fontSize: 13, color: 'var(--tg-theme-hint-color)', marginTop: gaveUp ? 14 : 8, textAlign: gaveUp ? 'center' : 'left' }}>
             You were {away === Infinity ? 'a few' : away} {away === 1 ? 'move' : 'moves'} from{' '}
             <b style={{ color: 'var(--tg-theme-text-color)' }}>{puzzle.target}</b>.
           </p>
         )}
-        {!failed && (
-          <p style={{ fontFamily: 'var(--mono)', fontSize: 14, color: 'var(--tg-theme-text-color)', marginTop: 12 }}>
-            {moves} {moves === 1 ? 'move' : 'moves'} · best possible {puzzle.par}
-            {delta > 0 ? ` (+${delta})` : delta < 0 ? ` (${-delta} under)` : ' (par)'}
-          </p>
-        )}
-        <Replay
-          title={failed ? 'how far you got' : 'your solution'}
-          path={path}
-          target={puzzle.target}
-        />
-        {failed && (
-          <Replay
-            title={`the shortest route · ${puzzle.par} moves`}
-            path={puzzle.optimalPath}
-            target={puzzle.target}
-            optimal={true}
-          />
-        )}
-      </div>
-      <div className="mainbtn-wrap">
-        {onShare && <button className="mainbtn green" onClick={onShare}>Share result</button>}
-        <button className="linkbtn" onClick={onClose}>← Back to puzzles</button>
+        <LadderPicker puzzle={puzzle} path={path} gaveUp={gaveUp} peers={peers} peersLoading={peersLoading} soloSeconds={solveSeconds} />
       </div>
     </div>
   );

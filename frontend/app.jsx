@@ -127,46 +127,6 @@ function loadHardPref() {
   try { return localStorage.getItem(HARD_PREF_KEY) === '1'; } catch (_) { return false; }
 }
 
-// ---- Share text ------------------------------------------------------------
-function deltaEmoji(delta) {
-  if (delta < 0)  return '🦅';   // under par — golf!
-  if (delta === 0) return '🎯';
-  if (delta <= 2) return '⭐';
-  if (delta <= 4) return '😂';
-  return '🤡';
-}
-
-function buildShareText(played, dayNum, hard = false) {
-  const completions = [4, 5]
-    .map(len => ({ len, entry: played[pkey(dayNum, len, hard)] }))
-    .filter(x => x.entry && !x.entry.gaveUp && !x.entry.timedOut);
-
-  if (completions.length === 0) return '';
-
-  const tag = hard ? ' 😈' : '';
-  const scoreOf = (e) => e.score ?? holeScore(e.solveSeconds, e.moves);
-  const bolt = (e) => (e.timeAttack ? ' ⚡' : '');
-
-  if (completions.length === 1) {
-    const { len, entry } = completions[0];
-    return [
-      `Diddle #${dayNum} (${len}L)${tag} ${deltaEmoji(entry.delta)}`,
-      `Score ${scoreOf(entry) ?? '—'} · ${deltaTag(entry.delta)}${bolt(entry)}`,
-    ].join('\n');
-  }
-
-  // Both completed
-  const lines = [`Diddle #${dayNum}${tag}`];
-  let total = 0, haveTotal = true;
-  for (const { len, entry } of completions) {
-    const sc = scoreOf(entry);
-    if (sc == null) haveTotal = false; else total += sc;
-    lines.push(`${len}L · ${sc ?? '—'} ${deltaTag(entry.delta)} ${deltaEmoji(entry.delta)}${bolt(entry)}`);
-  }
-  if (haveTotal) lines.push(`Total ${total}`);
-  return lines.join('\n');
-}
-
 // ---- Fetch today's scores + in-progress paths (startup sync) ---------------
 async function fetchMyData() {
   if (!INIT_DATA) return { scores: [], progress: [] };
@@ -190,6 +150,21 @@ async function fetchStats(wordLength = 5) {
     return await res.json();
   } catch (_) {
     return null;
+  }
+}
+
+// ---- Peers (connected players who finished this variant today) ------------
+async function fetchPeers(wordLength, hardMode) {
+  if (!INIT_DATA) return [];
+  try {
+    const res = await fetch(`/peers?length=${wordLength}&hard=${hardMode ? 'true' : 'false'}`, {
+      headers: { Authorization: `tma ${INIT_DATA}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.peers || [];
+  } catch (_) {
+    return [];
   }
 }
 
@@ -301,6 +276,8 @@ function App() {
   const [scoreResult,  setScoreResult]  = React.useState(null);
   const [errorMsg,     setErrorMsg]     = React.useState(null);
   const [invalidAttempts, setInvalidAttempts] = React.useState(0);
+  const [peers,        setPeers]        = React.useState([]);
+  const [peersLoading, setPeersLoading] = React.useState(false);
 
   // ---- Load puzzles + sync today's scores from server at startup -----------
   React.useEffect(() => {
@@ -414,39 +391,19 @@ function App() {
     setTimeout(() => setToast(null), 1800);
   };
 
-  // ---- Share handler -------------------------------------------------------
-  const shareRef = React.useRef(null);
+  // ---- Peers for the ladder picker (connected players who finished today) --
   React.useEffect(() => {
-    const dayNum = puzzles[4]?.num || puzzles[5]?.num;
-    if (!dayNum) return;
-    shareRef.current = () => {
-      // Share the variant currently in view; fall back to whichever has results.
-      const txt = buildShareText(played, dayNum, hardPref)
-               || buildShareText(played, dayNum, !hardPref);
-      if (!txt) return;
-      try { navigator.clipboard?.writeText(txt); } catch (_) {}
-      flashToast('Copied — paste in chat!');
-      tg?.HapticFeedback?.notificationOccurred('success');
-    };
-  }, [played, puzzles, hardPref]);
-
-  // ---- Telegram MainButton -------------------------------------------------
-  React.useEffect(() => {
-    if (!tg?.MainButton) return;
-    const handler = () => shareRef.current?.();
-    tg.MainButton.onClick(handler);
-    return () => tg.MainButton.offClick(handler);
-  }, []);
-
-  React.useEffect(() => {
-    if (!tg?.MainButton) return;
-    if (screen === 'finished') {
-      tg.MainButton.setText('Share Score 🔤');
-      tg.MainButton.show();
-    } else {
-      tg.MainButton.hide();
+    if (!['finished', 'gaveup', 'result'].includes(screen) || !activePuzzle) {
+      setPeers([]);
+      return;
     }
-  }, [screen]);
+    let cancelled = false;
+    setPeersLoading(true);
+    fetchPeers(activePuzzle.length, activePuzzle.hardMode).then(rows => {
+      if (!cancelled) { setPeers(rows); setPeersLoading(false); }
+    });
+    return () => { cancelled = true; };
+  }, [screen, activePuzzle]);
 
   // ---- Shot-clock lapsed → NON-fatal: drop the clock, keep playing untimed ---
   // The puzzle loses its ⚡ (clean TA) but is otherwise played normally from here.
@@ -686,8 +643,7 @@ function App() {
     setScreen('gaveup');
   };
 
-  // ---- Share / retry -------------------------------------------------------
-  const handleShare = () => shareRef.current?.();
+  // ---- Retry -----------------------------------------------------------
   const handleRetry = () => window.location.reload();
 
   // ---- Render --------------------------------------------------------------
@@ -701,9 +657,10 @@ function App() {
   } else if (screen === 'finished') {
     body = <FinishedScreen puzzle={activePuzzle} path={path} stats={stats}
                            scoreResult={scoreResult}
-                           onShare={handleShare} onClose={handleBackToLobby} />;
+                           peers={peers} peersLoading={peersLoading} />;
   } else if (screen === 'gaveup') {
-    body = <GaveUpScreen puzzle={activePuzzle} path={path} onClose={handleBackToLobby} />;
+    body = <GaveUpScreen puzzle={activePuzzle} path={path}
+                         peers={peers} peersLoading={peersLoading} />;
   } else if (screen === 'result') {
     const entry = activePuzzle ? played[puzKey(activePuzzle)] : null;
     body = (
@@ -715,8 +672,9 @@ function App() {
         timeAttack={entry?.timeAttack || false}
         delta={entry?.delta ?? 0}
         score={entry?.score ?? holeScore(entry?.solveSeconds, entry?.moves)}
-        onShare={(!entry?.gaveUp && !entry?.timedOut) ? handleShare : null}
-        onClose={handleBackToLobby}
+        solveSeconds={entry?.solveSeconds}
+        peers={peers}
+        peersLoading={peersLoading}
       />
     );
   } else if (screen === 'playing') {
@@ -754,7 +712,6 @@ function App() {
           ? <LeaderboardScreen initData={INIT_DATA} onClose={() => setShowLb(false)} />
           : <LobbyScreen puzzles={viewPuzzles} played={played}
                          onPlay={handlePlay}
-                         onShare={handleShare}
                          hardPref={showHard} hardAvailable={hardAvailable}
                          onToggleHard={toggleHardPref}
                          onLeaderboard={() => setShowLb(true)} />

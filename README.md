@@ -6,6 +6,12 @@ A daily word-ladder puzzle, delivered as a [Telegram Mini App](https://core.tele
   <img src="docs/leaderboard.png" alt="Diddle group leaderboard" width="420">
 </p>
 
+<p align="center">
+  <img src="docs/diddle-game.png" alt="Mid-ladder with the shot clock running" width="260">
+  <img src="docs/diddle-finish.png" alt="Finish screen: score, par/best picker, replay" width="260">
+  <img src="docs/diddle-lobby-hard.png" alt="Hard Mode lobby" width="260">
+</p>
+
 ## The game
 
 A word ladder turns one word into another by changing a single letter at a time, where every rung is itself a valid word:
@@ -19,6 +25,7 @@ COLD → CORD → CARD → WARD → WARM
 - **Hard Mode** is an optional daily toggle with much longer ladders.
 - **Time Attack** runs a per-guess shot clock. The first time it lapses you simply lose the clean-solve bonus; it never ends your game.
 - **Score** is hybrid: `solve_seconds + 60 × moves`, lower is better. It rewards both speed and efficiency rather than par alone.
+- **The finish screen** replays ladders side by side: your route, par's, the true shortest path (when it differs), and every connected player's — with any rare, off-pool word you played marked with a ★. Giving up reveals the quickest finish from wherever you stopped.
 
 ## How it works
 

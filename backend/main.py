@@ -33,7 +33,7 @@ from db import (
     get_alltime_stats, get_user_today_scores,
     get_group_message_row, upsert_group_message_row,
     upsert_group_activity,
-    get_chat_roster, get_user_board_chats,
+    get_chat_roster, get_user_board_chats, get_peer_scores,
     upsert_progress, delete_progress, get_user_progress, get_progress_for_users,
     get_progress_started_at, upsert_day_mode,
 )
@@ -134,6 +134,12 @@ _valid_graph: dict[int, dict]     = {}
 # Challenge mode: top-20k frequency subset, longer chains
 _challenge_words: dict[int, set[str]] = {}
 _challenge_graph: dict[int, dict]     = {}
+# The full word SET par is measured against (what built _challenge_graph).
+# NOT the same as _challenge_graph.keys() — build_graph only keys words that
+# landed at least one edge, silently dropping any word that turned out
+# graph-isolated within that frequency-limited subset, so `.keys()` under-
+# reports the pool. Kept separately so /words/pool can report it accurately.
+_challenge_pool: dict[int, set[str]]   = {}
 _challenge_puzzles: dict[int, dict]   = {}
 _challenge_puzzle_days: dict[int, int] = {}
 
@@ -216,9 +222,11 @@ async def lifespan(app: FastAPI):
             # thus the daily puzzle, must be identical across backend restarts.
             ordered  = sorted(_words[length], key=lambda w: (-zipf_frequency(w, "en"), w))
             keep     = max(1, int(len(ordered) * CHALLENGE_5L_TOP_PCT / 100))
-            par_graph = build_graph(set(ordered[:keep]))
+            pool      = set(ordered[:keep])
+            par_graph = build_graph(pool)
             par_comp  = largest_component(par_graph)
             _challenge_graph[length] = par_graph
+            _challenge_pool[length]  = pool
             # endpoints = the common (top-N) words within the par component
             common = {w for w in par_comp if w in freq_top} if freq_top else par_comp
             _challenge_words[length] = common or par_comp
@@ -227,6 +235,7 @@ async def lifespan(app: FastAPI):
             c_graph = build_graph(c_raw)
             _challenge_words[length] = largest_component(c_graph)
             _challenge_graph[length] = c_graph
+            _challenge_pool[length]  = c_raw
         log.info("Hard pool (%dL): %d endpoints, par-graph %d words",
                  length, len(_challenge_words[length]), len(_challenge_graph[length]))
 
@@ -897,6 +906,18 @@ async def words(length: int = Query(default=5)):
     return PlainTextResponse("\n".join(sorted(_valid_words[length])))
 
 
+@app.get("/words/pool")
+async def words_pool(length: int = Query(default=5), hard: bool = Query(default=False)):
+    """The narrower 'ladder list' — the common-word selection/par pool, a
+    subset of /words' wider validation dictionary. Lets the finish-screen
+    replay star words that only exist in the wider list (rare-but-legal
+    picks)."""
+    if length not in _words:
+        raise HTTPException(status_code=400, detail=f"length must be one of {WORD_LENGTHS}")
+    pool = _challenge_pool[length] if hard else _words[length]
+    return PlainTextResponse("\n".join(sorted(pool)))
+
+
 # ── Authenticated endpoints ────────────────────────────────────────────────────
 
 class ProgressRequest(BaseModel):
@@ -1155,6 +1176,40 @@ async def me(authorization: str = Header(default="")):
     return {"scores": scores, "progress": progress}
 
 
+@app.get("/peers")
+async def peers(
+    authorization: str = Header(default=""),
+    length: int = Query(...),
+    hard: bool = Query(default=False),
+):
+    """Today's finished runs (this length/variant) from everyone the caller is
+    connected to — union of the rosters of every chat they've ever played from.
+    Powers the finish screen's Par/Best/name ladder picker."""
+    if not authorization.startswith("tma "):
+        raise HTTPException(status_code=403, detail="Missing tma token")
+    try:
+        user, _chat_id = _auth_user(authorization[4:])
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    user_id = user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=403, detail="Could not identify user")
+    play_date = date.today().isoformat()
+    rows = await get_peer_scores(DB_PATH, user_id, play_date, length, hard)
+    return {"peers": rows}
+
+
+# No-build-step frontend: files change on every edit with no filename hash to
+# bust caches, so serve them as explicitly non-cacheable. Without this, Cloudflare's
+# edge (and/or the client) fills in its own default freshness heuristic and can
+# keep serving an old JS/CSS snapshot for hours after a real deploy.
+class NoCacheStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 # StaticFiles must be mounted last — API routes registered above take priority
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
-app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="static")
+app.mount("/", NoCacheStaticFiles(directory=FRONTEND_DIR, html=True), name="static")

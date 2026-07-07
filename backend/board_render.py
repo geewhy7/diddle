@@ -73,6 +73,19 @@ def _delta_tag(d: int) -> str:
     return "P" if d == 0 else (f"+{d}" if d > 0 else f"−{-d}")   # P / +N / −N
 
 
+def _fmt_score(score) -> str:
+    """Hybrid score (second-units) as a minimal clock: M:SS, rolling to H:MM:SS
+    past an hour. Leading unit unpadded (6:24, 1:12:52), trailing units padded.
+    Non-numeric (e.g. the '—' placeholder) passes through escaped."""
+    try:
+        total = int(score)
+    except (TypeError, ValueError):
+        return _esc(score)
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
+
 def _delta_cls(d: int) -> str:
     return "c-un" if d < 0 else "c-par" if d == 0 else "c1" if d == 1 else "c2" if d == 2 else "c3"
 
@@ -92,7 +105,7 @@ def _pill(hole: dict) -> str:
         return '<span class="pill fail">⌛</span>'
     d = hole["delta"]
     score = hole.get("score")
-    score_txt = _esc(score) if score is not None else "—"
+    score_txt = _fmt_score(score) if score is not None else "—"
     return f'<span class="pill {_delta_cls(d)}">{score_txt}<sup>{_delta_tag(d)}</sup></span>'
 
 
@@ -141,7 +154,7 @@ def _table(ranked: list, others: list, empty_msg: str | None) -> str:
     rows = [_TH]
     for p in ranked:
         rows.append(_row(_rank_badge(p["rank"]), p["name"], p["holes"],
-                         _esc(p["score"]), muted=False))
+                         _fmt_score(p["score"]), muted=False))
     if others:
         rows.append('<div class="divider"></div>')
         for p in others:
@@ -203,7 +216,8 @@ body {{ padding:18px; font-family:-apple-system,'Segoe UI',Roboto,'DejaVu Sans',
 .rank.n {{ color:#7e8b99; font-weight:700; font-size:14px; }}
 .cellwrap {{ display:inline-flex; align-items:center; justify-content:center; }}
 .bolt-slot {{ display:inline-flex; align-items:center; justify-content:flex-start;
-             width:15px; margin-left:4px; font-size:12px; color:#f5d142; }}
+             width:19px; margin-left:5px; font-size:17px; font-weight:900; color:#f5d142;
+             filter:drop-shadow(0 0 3px rgba(245,209,66,.85)); }}
 .pill {{ display:inline-block; min-width:58px; padding:5px 11px; border-radius:9px;
         color:#fff; font-size:15px; font-weight:800; text-align:center;
         font-variant-numeric:tabular-nums; }}

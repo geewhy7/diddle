@@ -1,6 +1,6 @@
 /* Diddle — shared presentational components. Exported to window for other
    babel scripts (screens.jsx, app.jsx) to consume. */
-const { useState, useEffect, useRef } = React;
+const { useState, useEffect, useRef, useMemo } = React;
 
 // tiny logo mark: a 2x2 of "tiles" with one accent cell
 function Mark() {
@@ -177,21 +177,40 @@ function deltaTag(d) { return d === 0 ? 'P' : (d > 0 ? `+${d}` : `−${-d}`); } 
 function deltaClass(d) {
   return d < 0 ? 'sc-un' : d === 0 ? 'sc-par' : d === 1 ? 'sc-1' : d === 2 ? 'sc-2' : 'sc-3';
 }
+// Format a hybrid score (second-units) as a minimal clock: M:SS, rolling to
+// H:MM:SS past an hour. The leading unit isn't zero-padded (6:24, 1:12:52);
+// trailing units are. null → em dash.
+function fmtScore(score) {
+  if (score == null) return '—';
+  const h = Math.floor(score / 3600);
+  const m = Math.floor((score % 3600) / 60);
+  const s = score % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`;
+}
 
 // The delta-colored score pill (integer score + par-delta superscript, ⚡ if a
 // clean time-attack solve). Used on finish / result / lobby card.
 function ScorePill({ score, delta, clean = false, size = 'lg' }) {
   return (
     <span className={`score-pill ${deltaClass(delta)} ${size}`}>
-      <span className="sp-num">{score == null ? '—' : score}</span>
+      <span className="sp-num">{fmtScore(score)}</span>
       <sup className="sp-tag">{deltaTag(delta)}</sup>
       {clean && <span className="sp-bolt">⚡</span>}
     </span>
   );
 }
 
-// compact replay used on finished / gave-up / result screens
-function Replay({ title, path, target, optimal = false }) {
+// compact replay used on finished / gave-up / result screens. `commonWords`
+// (the puzzle's par/selection pool) is optional — when given, any played word
+// (not the fixed start) outside that pool but still legal gets a little star:
+// a rare, bold pick only reachable via the wider validation list. `finish` is
+// an optional continuation path (starting from the same word `path` ends on)
+// — when given (a give-up with at least one move made), a divider + the
+// quickest solve from there renders below, so the player can go "oh, duh".
+function Replay({ title, path, target, optimal = false, commonWords, finish }) {
+  const showFinish = finish && finish.length > 1;
   return (
     <div className={"replay" + (optimal ? " optimal" : "")}>
       <h4>{title}</h4>
@@ -201,16 +220,149 @@ function Replay({ title, path, target, optimal = false }) {
         const changedIdx = (prev && !isWin)
           ? window.Diddle.changedIndex(prev, w)
           : -1;
+        const rare = commonWords && i > 0 && !commonWords.has(w);
         return (
           <div className="row" key={i}>
-            <div className="gutter">{i}</div>
-            <Tiles word={w} target={target} win={isWin} changedIdx={changedIdx} />
+            <div className="row-core">
+              <div className="gutter">{i}</div>
+              <Tiles word={w} target={target} win={isWin} changedIdx={changedIdx} />
+              {rare && <span className="rare-star" title="Not in the common word list — bold pick">★</span>}
+            </div>
           </div>
         );
       })}
+      {showFinish && (
+        <>
+          <div className="replay-divider" />
+          <div className="replay-continued">
+            <div className="replay-hint-label">quickest finish from here</div>
+            {finish.slice(1).map((w, i) => {
+              const isWin = w === target;
+              const prev = i === 0 ? finish[0] : finish[i];
+              const changedIdx = !isWin ? window.Diddle.changedIndex(prev, w) : -1;
+              return (
+                <div className="row" key={"f" + i}>
+                  <div className="row-core">
+                    <div className="gutter">{path.length + i}</div>
+                    <Tiles word={w} target={target} win={isWin} changedIdx={changedIdx} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// One ladder view with a two-tier picker instead of a flat pill row: Par/Best
+// side by side up top (Best omitted when it equals Par — nothing to toggle),
+// then one full-width row per player — You, then every connected player who
+// finished this variant today. Selecting a row swaps the single Replay below.
+// Selected = a lit pill (solid fill + glow); everything else reads as "off"
+// but stays legible. `Par` is the server's common-word optimal (what
+// score/delta is measured against); `Best` is the true shortest path over the
+// full validation graph — only differs from Par when a rarer valid word
+// offers a golf shortcut.
+function LadderPicker({ puzzle, path, gaveUp, peers, peersLoading, soloSeconds }) {
+  const parPath   = puzzle.optimalPath;
+  const bestPath  = puzzle.bestPath || parPath;
+  const parSteps  = parPath.length - 1;
+  const bestSteps = bestPath.length - 1;
+  const bestDiffers = bestSteps < parSteps;
+
+  const routeOptions = [{ key: 'par', label: 'Par', path: parPath, steps: parSteps, optimal: true }];
+  if (bestDiffers) {
+    routeOptions.push({ key: 'best', label: 'Best', path: bestPath, steps: bestSteps, optimal: true });
+  }
+
+  const userOptions = [{
+    key: 'you', label: 'You', path, steps: path.length - 1,
+    gaveUp: !!gaveUp, solveSeconds: gaveUp ? null : soloSeconds,
+  }];
+  for (const p of (peers || [])) {
+    const pPath = (p.path && p.path.length > 1) ? p.path.map(w => w.toUpperCase()) : [puzzle.start];
+    userOptions.push({
+      key: `p${p.user_id}`, label: p.name, path: pPath, steps: p.moves,
+      gaveUp: !!p.gave_up, timedOut: !!p.timed_out,
+      solveSeconds: p.gave_up ? null : p.solve_seconds,
+    });
+  }
+
+  const [sel, setSel] = useState('you');
+  const active = [...routeOptions, ...userOptions].find(o => o.key === sel) || userOptions[0];
+  const pronoun = active.key === 'you' ? 'you' : 'they';
+
+  // Give-ups with at least one move get a bonus: the quickest completion from
+  // the word they left off on, over the puzzle's common pool.
+  const finishPath = useMemo(() => {
+    if (!active.gaveUp || !active.path || active.path.length <= 1) return null;
+    if (typeof puzzle.finishFromHere !== 'function') return null;
+    return puzzle.finishFromHere(active.path[active.path.length - 1]);
+  }, [active.key, active.path, puzzle]);
+
+  const routePill = (o) => (
+    <button key={o.key} className={"lp-pill lp-route" + (o.key === sel ? " on" : " off")} onClick={() => setSel(o.key)}>
+      <span className="lp-route-label">{o.label}</span>
+      <span className="lp-route-moves">{o.steps} {o.steps === 1 ? 'move' : 'moves'}</span>
+    </button>
+  );
+  const userRow = (o) => {
+    const time = !o.gaveUp ? fmtTime(o.solveSeconds) : null;
+    return (
+      <button key={o.key} className={"lp-pill lp-user" + (o.key === sel ? " on" : " off")} onClick={() => setSel(o.key)}>
+        <span className="lp-dot" aria-hidden="true" />
+        <span className="lp-name">{o.label}</span>
+        {!o.gaveUp && (
+          <span className="lp-meta">
+            {time && <span className="lp-time">{time}</span>}
+            <span className="lp-moves"><span className="lp-moves-num">{o.steps}</span> {o.steps === 1 ? 'move' : 'moves'}</span>
+          </span>
+        )}
+      </button>
+    );
+  };
+
+  return (
+    <div className="ladder-picker">
+      <div className="lp-routes">{routeOptions.map(routePill)}</div>
+      <div className="lp-users">{userOptions.map(userRow)}</div>
+      {peersLoading && <div className="lp-loading">finding your people…</div>}
+      {active.gaveUp && active.key !== 'you' && <GaveUpStamp compact={true} />}
+      <Replay
+        title={active.gaveUp ? `how far ${pronoun} got` : `${active.steps} ${active.steps === 1 ? 'move' : 'moves'}`}
+        path={active.path}
+        target={puzzle.target}
+        optimal={!!active.optimal}
+        commonWords={puzzle.commonWords}
+        finish={finishPath}
+      />
+    </div>
+  );
+}
+
+// give-up treatment: a skull over a "GAVE UP" callout, one letter-span per
+// character so the CSS can give each one its own little wobble.
+function BloodyText({ text }) {
+  return (
+    <div className="bloody-text" aria-label={text}>
+      {text.split('').map((ch, i) => (
+        <span key={i} className="bl-ch" style={{ '--i': i }}>{ch === ' ' ? ' ' : ch}</span>
+      ))}
+    </div>
+  );
+}
+
+function GaveUpStamp({ compact = false }) {
+  return (
+    <div className={"gave-up-stamp" + (compact ? " compact" : "")}>
+      <div className="gave-up-skull">💀</div>
+      <BloodyText text="GAVE UP" />
     </div>
   );
 }
 
 Object.assign(window, { Mark, Wordmark, Tiles, ChainRow, Replay, Keyboard, Confetti, DiddleSound,
-                        ScorePill, holeScore, deltaTag, deltaClass });
+                        ScorePill, holeScore, fmtScore, deltaTag, deltaClass,
+                        LadderPicker, BloodyText, GaveUpStamp });

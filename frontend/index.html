@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="color-scheme" content="light dark" />
   <title>Diddle — daily word ladder</title>
-  <link rel="stylesheet" href="diddle.css" />
+  <link rel="stylesheet" href="diddle.css?v=1" />
   <style>
     /* Production overrides: remove design-tool surround, fill Telegram viewport */
     body { background: transparent; padding: 0; display: block; }
@@ -24,11 +24,11 @@
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
   <!-- engine (plain JS, no Babel needed) -->
-  <script src="engine.js"></script>
+  <script src="engine.js?v=1"></script>
 
   <!-- components → screens → app (load order matters: each exports to window) -->
-  <script type="text/babel" src="components.jsx"></script>
-  <script type="text/babel" src="screens.jsx"></script>
-  <script type="text/babel" src="app.jsx"></script>
+  <script type="text/babel" src="components.jsx?v=1"></script>
+  <script type="text/babel" src="screens.jsx?v=1"></script>
+  <script type="text/babel" src="app.jsx?v=1"></script>
 </body>
 </html>

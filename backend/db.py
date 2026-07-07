@@ -766,3 +766,63 @@ async def get_user_board_chats(db_path: str, user_id: int, play_date: str) -> li
         )
         rows = await cur.fetchall()
     return [r[0] for r in rows]
+
+
+async def get_user_chat_ids(db_path: str, user_id: int) -> list[int]:
+    """Every chat this user has ever interacted from (group_activity or a
+    chat-tagged score row) — the chats unioned to build their connections."""
+    async with aiosqlite.connect(db_path) as db:
+        cur = await db.execute(
+            """SELECT DISTINCT chat_id FROM group_activity WHERE user_id = ?
+               UNION
+               SELECT DISTINCT chat_id FROM scores WHERE user_id = ? AND chat_id IS NOT NULL""",
+            (user_id, user_id),
+        )
+        rows = await cur.fetchall()
+    return [r[0] for r in rows]
+
+
+async def get_connections(db_path: str, user_id: int) -> dict[int, str]:
+    """Everyone this user is connected to: the union of chat rosters across
+    every chat they've ever played/chatted from. Deliberately asymmetric — a
+    player in several chats sees a wider set of names than someone who only
+    shares one chat with them (each side unions their OWN chat list)."""
+    roster: dict[int, str] = {}
+    for chat_id in await get_user_chat_ids(db_path, user_id):
+        roster.update(await get_chat_roster(db_path, chat_id))
+    roster.pop(user_id, None)
+    return roster
+
+
+async def get_peer_scores(
+    db_path: str, user_id: int, play_date: str, word_length: int, hard_mode: bool
+) -> list[dict]:
+    """Today's finished (solved or gave-up) runs for this puzzle variant from
+    everyone the requesting user is connected to — feeds the finish screen's
+    ladder-picker peer pills."""
+    connections = await get_connections(db_path, user_id)
+    if not connections:
+        return []
+    async with aiosqlite.connect(db_path) as db:
+        placeholders = ",".join("?" for _ in connections)
+        cur = await db.execute(
+            f"""SELECT user_id, display_name, moves, gave_up, timed_out, path,
+                       solve_seconds, time_attack
+                FROM scores
+                WHERE play_date = ? AND word_length = ? AND hard_mode = ?
+                  AND user_id IN ({placeholders})
+                ORDER BY MAX(gave_up, timed_out) ASC, gave_up ASC,
+                         (COALESCE(solve_seconds, 0) + moves * 60) ASC""",
+            (play_date, word_length, int(hard_mode), *connections.keys()),
+        )
+        rows = await cur.fetchall()
+    return [{
+        "user_id":       r[0],
+        "name":          connections.get(r[0], r[1]),
+        "moves":         r[2],
+        "gave_up":       bool(r[3]),
+        "timed_out":     bool(r[4]),
+        "path":          json.loads(r[5]) if r[5] else [],
+        "solve_seconds": r[6],
+        "time_attack":   bool(r[7]),
+    } for r in rows]

@@ -73,31 +73,68 @@
     return p ? p.length - 1 : Infinity;
   }
 
+  // Same BFS as shortestPath, but `start` need not already be a node in `adj`
+  // — its edges are derived on the fly against `poolWords` instead of
+  // mutating the shared graph. Used to auto-solve a give-up from wherever the
+  // player actually stopped, which may be a legal-but-rare word that never
+  // made it into the narrower pool the graph was built from.
+  function shortestPathFromNode(start, target, adj, poolWords) {
+    if (start === target) return [start];
+    const startNeighbors = adj.has(start) ? adj.get(start) : poolWords.filter(w => oneAway(start, w));
+    const prev = new Map([[start, null]]);
+    const q = [start];
+    while (q.length) {
+      const cur = q.shift();
+      const neighbors = cur === start ? startNeighbors : (adj.get(cur) || []);
+      for (const nb of neighbors) {
+        if (!prev.has(nb)) {
+          prev.set(nb, cur);
+          if (nb === target) {
+            const path = [];
+            let c = nb;
+            while (c !== null) { path.unshift(c); c = prev.get(c); }
+            return path;
+          }
+          q.push(nb);
+        }
+      }
+    }
+    return null;
+  }
+
   // ---- API loading ---------------------------------------------------------
 
-  async function loadFromAPI(wordLength = 5) {
-    const [pzRes, wRes] = await Promise.all([
-      fetch(`/puzzle?length=${wordLength}`),
-      fetch(`/words?length=${wordLength}`),
-    ]);
-    if (!pzRes.ok) throw new Error(`Puzzle fetch failed (${pzRes.status})`);
-    if (!wRes.ok)  throw new Error(`Words fetch failed (${wRes.status})`);
+  async function loadWordSet(url, wordLength) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Words fetch failed (${res.status})`);
+    const text = await res.text();
+    return new Set(text.trim().split('\n')
+      .map(w => w.trim().toUpperCase())
+      .filter(w => w.length === wordLength && /^[A-Z]+$/.test(w)));
+  }
 
+  async function loadFromAPI(wordLength = 5) {
+    const pzRes = await fetch(`/puzzle?length=${wordLength}`);
+    if (!pzRes.ok) throw new Error(`Puzzle fetch failed (${pzRes.status})`);
     const { start, end, optimal_steps, optimal_path, day, word_length,
             time_limit, hard_available, hard } = await pzRes.json();
-    const wordText = await wRes.text();
 
-    const words = wordText.trim().split('\n')
-      .map(w => w.trim().toUpperCase())
-      .filter(w => w.length === word_length && /^[A-Z]+$/.test(w));
+    const [dictSet, commonSet, hardCommonSet] = await Promise.all([
+      loadWordSet(`/words?length=${word_length}`, word_length),
+      loadWordSet(`/words/pool?length=${word_length}&hard=false`, word_length),
+      hard_available
+        ? loadWordSet(`/words/pool?length=${word_length}&hard=true`, word_length)
+        : Promise.resolve(null),
+    ]);
+    const words = [...dictSet];
 
     // Word graph + dictionary are shared by both variants (validation uses the
     // full word set either way) — only start/target/par differ.
     const adj  = buildAdj(words);
-    const dict = new Set(words);
+    const dict = dictSet;
 
     // Build a playable puzzle object for one variant of this length.
-    const makeVariant = (s, e, par, hardMode, serverPath) => {
+    const makeVariant = (s, e, par, hardMode, serverPath, commonWords) => {
       const startUC  = s.toUpperCase();
       const targetUC = e.toUpperCase();
       // Prefer the server's canonical par path (common-word pool, matches the
@@ -106,6 +143,17 @@
       const optimalPath = (Array.isArray(serverPath) && serverPath.length > 1)
         ? serverPath.map(w => w.toUpperCase())
         : (shortestPath(startUC, targetUC, adj) || [startUC, targetUC]);
+      // True shortest path over the full validation graph — can be shorter than
+      // `optimalPath` (which is measured over the common-word pool) when a rarer
+      // valid word offers a golf shortcut. Powers the Par/Best ladder toggle.
+      const bestPath = shortestPath(startUC, targetUC, adj) || optimalPath;
+      // The narrower "common" pool (same one par is measured against) — used
+      // to auto-solve a give-up so the reveal reads as an "oh, duh" common
+      // word rather than an obscure shortcut through the wide validation dict.
+      const poolWords = [...commonWords];
+      if (!commonWords.has(startUC))  poolWords.push(startUC);
+      if (!commonWords.has(targetUC)) poolWords.push(targetUC);
+      const commonAdj = buildAdj(poolWords);
       return {
         id:     `day-${day}-${hardMode ? 'h' : 'n'}`,
         num:    day,
@@ -117,10 +165,21 @@
         isChallenge: !!hardMode,      // hard variant wears the 😈 treatment
         timeLimit: time_limit || 0,   // per-guess shot clock seconds; 0 = off
         optimalPath,
+        bestPath,
         dict,
+        commonWords,
         adj,
         bestFromHere(word) {
           return distance(word.toUpperCase(), targetUC, adj);
+        },
+        // Quickest completion from `word` to the target, over the narrower
+        // common pool (falls back to the full validation graph if the pool
+        // graph can't reach it from here). Returns null if already solved.
+        finishFromHere(word) {
+          const w = (word || '').toUpperCase();
+          if (w === targetUC) return null;
+          return shortestPathFromNode(w, targetUC, commonAdj, poolWords)
+              || shortestPath(w, targetUC, adj);
         },
         validate(prev, guess) {
           const g = (guess || '').toUpperCase().trim();
@@ -135,10 +194,10 @@
       };
     };
 
-    const normal = makeVariant(start, end, optimal_steps, false, optimal_path);
+    const normal = makeVariant(start, end, optimal_steps, false, optimal_path, commonSet);
     // The hard variant (same length) — null if today has no qualifying pair.
     normal.hardVariant = (hard_available && hard)
-      ? makeVariant(hard.start, hard.end, hard.optimal_steps, true, hard.optimal_path)
+      ? makeVariant(hard.start, hard.end, hard.optimal_steps, true, hard.optimal_path, hardCommonSet)
       : null;
     return normal;
   }
