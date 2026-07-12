@@ -61,6 +61,18 @@ async def stop_renderer() -> None:
     _PW = _BROWSER = None
 
 
+async def _ensure_browser() -> bool:
+    """True if a live chromium is available, relaunching it if the persistent
+    one has died out from under the long-running process (crashed 2026-07-12
+    and every render failed until restart). Callers hold _LOCK."""
+    if _BROWSER is not None and _BROWSER.is_connected():
+        return True
+    log.warning("board renderer: chromium gone — relaunching")
+    await stop_renderer()
+    await start_renderer()
+    return _BROWSER is not None
+
+
 def renderer_ready() -> bool:
     return _BROWSER is not None
 
@@ -243,11 +255,11 @@ body {{ padding:18px; font-family:-apple-system,'Segoe UI',Roboto,'DejaVu Sans',
 
 
 async def render_board_png(data: dict) -> bytes | None:
-    if _BROWSER is None:
-        return None
     html_str = _build_html(data)
     try:
         async with _LOCK:
+            if not await _ensure_browser():
+                return None
             page = await _BROWSER.new_page(
                 viewport={"width": 760, "height": 200}, device_scale_factor=2,
             )
