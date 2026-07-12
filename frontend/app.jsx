@@ -23,7 +23,7 @@ if (tg) {
 // ---- Globals set by components.jsx, screens.jsx ----------------------------
 const {
   LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen,
-  LobbyScreen, LeaderboardScreen, ResultScreen,
+  LobbyScreen, LeaderboardScreen, ResultScreen, HowToScreen,
   Wordmark, Mark, Confetti, DiddleSound,
 } = window;
 
@@ -83,6 +83,15 @@ function loadPlayed() {
 // ---- Solve-timer starts (localStorage) — epoch ms keyed "${day}-${length}" --
 // Display only; the recorded time is computed server-side from progress.started_at.
 const START_KEY = 'diddle.start.v4';
+
+// ---- First-play how-to splash ----------------------------------------------
+// Device-scoped, NOT day-keyed (deliberately not bumped on era resets — a
+// returning player doesn't need the tutorial again). If storage is broken,
+// pretend it's been seen so the gate can never block playing.
+const HOWTO_KEY = 'diddle.howto.v1';
+function seenHowTo() {
+  try { return !!localStorage.getItem(HOWTO_KEY); } catch (_) { return true; }
+}
 function loadStarts() {
   try {
     const s = JSON.parse(localStorage.getItem(START_KEY));
@@ -214,6 +223,8 @@ async function postScore(path, gaveUp, invalidAttempts, wordLength = 5, timedOut
 // ---- App -------------------------------------------------------------------
 function App() {
   const [screen,       setScreen]       = React.useState('loading');
+  const [howtoMode,    setHowtoMode]    = React.useState(null);  // null | 'gate' | 'info'
+  const pendingPlayRef = React.useRef(null);  // {puzzle, cardEl} parked behind the gate
   // puzzles loaded from API: { 4: puzzleObj, 5: puzzleObj }
   const [puzzles,      setPuzzles]      = React.useState({});
   // the puzzle currently being played
@@ -439,6 +450,15 @@ function App() {
       return;
     }
 
+    // First play ever on this device: show the how-to first. Everything below
+    // (deadline stamp, word reveal, /progress) waits — reading the rules must
+    // not cost score time. closeHowTo marks it seen and re-enters here.
+    if (!seenHowTo()) {
+      pendingPlayRef.current = { puzzle, cardEl };
+      setHowtoMode('gate');
+      return;
+    }
+
     const startPath = inProgress[key] || [puzzle.start];
 
     // Time Attack is always on (no toggle). The clock runs unless it already
@@ -500,6 +520,15 @@ function App() {
   const handleBackToLobby = () => {
     setActivePuzzle(null);
     setScreen('lobby');
+  };
+
+  // ---- How-to splash close: mark seen, resume the gated Play if any --------
+  const closeHowTo = () => {
+    try { localStorage.setItem(HOWTO_KEY, '1'); } catch (_) {}
+    setHowtoMode(null);
+    const pending = pendingPlayRef.current;
+    pendingPlayRef.current = null;
+    if (pending) handlePlay(pending.puzzle, pending.cardEl);
   };
 
   // ---- Submit --------------------------------------------------------------
@@ -714,7 +743,8 @@ function App() {
                          onPlay={handlePlay}
                          hardPref={showHard} hardAvailable={hardAvailable}
                          onToggleHard={toggleHardPref}
-                         onLeaderboard={() => setShowLb(true)} />
+                         onLeaderboard={() => setShowLb(true)}
+                         onHowTo={() => setHowtoMode('info')} />
         }
         {screen === 'zooming' && (
           <div className="zoom-overlay"
@@ -746,6 +776,10 @@ function App() {
         <span className="sub">{subLabel}</span>
       </div>
       {body}
+      {howtoMode && (
+        <HowToScreen cta={howtoMode === 'gate' ? "Let's climb" : "Got it"}
+                     onDone={closeHowTo} />
+      )}
       {celebrating && <Confetti perfect={celebrating.perfect} />}
       {toast && <div className="toast">{toast}</div>}
     </div>

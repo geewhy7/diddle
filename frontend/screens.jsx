@@ -399,7 +399,7 @@ function PuzzleCard({ puzzle, playedResult, onPlay }) {
 
 // ---- LobbyScreen -----------------------------------------------------------
 
-function LobbyScreen({ puzzles, played, onPlay, onLeaderboard,
+function LobbyScreen({ puzzles, played, onPlay, onLeaderboard, onHowTo,
                       hardPref, hardAvailable, onToggleHard }) {
   const dayNum = puzzles[4]?.num || puzzles[5]?.num || '';
   // The view's variant is hard when the toggle is on (cards swap to hardVariant).
@@ -407,6 +407,7 @@ function LobbyScreen({ puzzles, played, onPlay, onLeaderboard,
 
   return (
     <div className="screen lobby">
+      <button className="howto-fab" onClick={onHowTo} aria-label="How to play">?</button>
       {isChallenge && (
         <div className="challenge-stamp" aria-label="Hard Mode — extra hard puzzles">
           Hard<br />Mode
@@ -572,7 +573,72 @@ function LeaderboardScreen({ initData, onClose }) {
   );
 }
 
+// ---- HowToScreen (first-play instructions) ---------------------------------
+// Two-step splash rendered as a full-screen overlay: step 1 is the ladder
+// mechanic shown with a real solved ladder (live Tiles — amber ring = the
+// changed letter, green fills as letters lock into the target's position);
+// step 2 is par/scoring + the rare-word star. Gated to the first Play tap
+// ever on this device (the shot clock stamps at reveal, so reading must not
+// cost score time); the lobby "?" reopens it any time.
+
+const HOWTO_LADDER = ["CAT", "COT", "COG", "DOG"];
+
+function HowToRow({ word, prev, target, star }) {
+  const isWin = !!target && word === target;
+  const changedIdx = prev && !isWin ? window.Diddle.changedIndex(prev, word) : -1;
+  return (
+    <div className="row">
+      <div className="row-core">
+        <Tiles word={word} target={target} win={isWin} changedIdx={changedIdx} />
+        {star && <span className="rare-star" title="Not in the common word list — bold pick">★</span>}
+      </div>
+    </div>
+  );
+}
+
+function HowToScreen({ cta, onDone }) {
+  const [step, setStep] = React.useState(0);
+  const goal = HOWTO_LADDER[HOWTO_LADDER.length - 1];
+  return (
+    <div className="howto" role="dialog" aria-label="How to play">
+      <div className="howto-card" style={{ "--tile": "40px", "--tile-fs": "19px" }}>
+        {step === 0 ? (
+          <>
+            <h3>Climb the ladder</h3>
+            <p>Get from the start word to the target, changing <b>one letter</b> each rung. Every rung must be a real word.</p>
+            <div className="howto-ladder">
+              {HOWTO_LADDER.map((w, i) => (
+                <HowToRow key={w} word={w} prev={i ? HOWTO_LADDER[i - 1] : null} target={goal} />
+              ))}
+            </div>
+            <p className="howto-note">The amber ring is the letter that changed. Tiles turn green as letters lock into the target's position.</p>
+          </>
+        ) : (
+          <>
+            <h3>Par, the clock &amp; the star</h3>
+            <p><b>Par</b> is the fewest rungs possible using everyday words. Your score is your solve time plus a minute per rung — quick thinking and short ladders both pay.</p>
+            <div className="howto-ladder">
+              <HowToRow word="WOKS" star />
+            </div>
+            <p>The purple star marks a <b>rare word</b> — perfectly legal, just not on the everyday list par is measured with. A bold pick can sneak you <b>under par</b>.</p>
+            <p className="howto-note">Words stay hidden until you press Play, and the clock keeps ticking even if you leave — no scouting ahead.</p>
+          </>
+        )}
+        <div className="howto-dots">
+          {[0, 1].map(i => (
+            <button key={i} type="button" className={"dot" + (i === step ? " on" : "")}
+                    onClick={() => setStep(i)} aria-label={`Step ${i + 1} of 2`} />
+          ))}
+        </div>
+        {step === 0
+          ? <button type="button" className="howto-btn" onClick={() => setStep(1)}>Next</button>
+          : <button type="button" className="howto-btn" onClick={onDone}>{cta}</button>}
+      </div>
+    </div>
+  );
+}
+
 Object.assign(window, {
   LoadingScreen, ErrorScreen, PlayingScreen, FinishedScreen, GaveUpScreen,
-  LobbyScreen, PuzzleCard, LeaderboardScreen, ResultScreen,
+  LobbyScreen, PuzzleCard, LeaderboardScreen, ResultScreen, HowToScreen,
 });
