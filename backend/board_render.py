@@ -10,7 +10,7 @@ Board data shape:
     {
       "day": 7, "date_label": "June 13th",
       "pars": {4: 7, 5: 7}, "hard_pars": {4: 12, 5: 11},
-      "ranked": [ {"rank": 1, "name": "Greg", "score": "1242",  # total hybrid score
+      "ranked": [ {"rank": 1, "name": "Alice", "score": "1242",  # total hybrid score
                    "holes": {4: hole, 5: hole}} , ... ],   # finished both (normal)
       "others": [ {"name": "Bob", "holes": {4: hole, 5: hole}}, ... ],  # normal
       "hard_ranked": [...], "hard_others": [...],          # the 😈 cohort
